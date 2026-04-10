@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/Administrator/Desktop/assitant/data/raw_data/**)"
+    ]
+  }
+}
