@@ -63,6 +63,15 @@ class IdeaAgent:
             }
         )
 
+    def generate_from_markdown(self, question: str, report_markdown: str) -> IdeaReport:
+        """直接接收 Markdown 文本生成 Idea 报告（供 API 层调用，无需完整 ResearchReport）"""
+        return self.chain.invoke(
+            {
+                "question": question,
+                "report_summary": report_markdown,
+            }
+        )
+
     @staticmethod
     def to_markdown(result: IdeaReport) -> str:
         """将结构化 IdeaReport 渲染为 Markdown"""
