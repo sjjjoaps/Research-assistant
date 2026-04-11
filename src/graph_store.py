@@ -26,6 +26,7 @@ class GraphStore:
             "CREATE CONSTRAINT entity_id_unique IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE",
             "CREATE INDEX document_title_index IF NOT EXISTS FOR (d:Document) ON (d.title)",
             "CREATE INDEX entity_name_index IF NOT EXISTS FOR (e:Entity) ON (e.name)",
+            "CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (cm:Community) REQUIRE cm.id IS UNIQUE",
         ]
         with self.driver.session() as session:
             for query in queries:
@@ -141,3 +142,50 @@ class GraphStore:
         for chunk in chunks:
             self.create_chunk_node(chunk)
             self.create_has_chunk_relation(file_path, chunk.chunk_id)
+
+    # ------------------------------------------------------------------
+    # Phase 12 — 社区检测支持
+    # ------------------------------------------------------------------
+
+    def get_entity_relations(self) -> list[dict]:
+        """
+        读取图中所有 Entity 节点间的 RELATES_TO 边（无向）。
+        返回字段：source_id, target_id, source_name, target_name, source_desc, target_desc
+        """
+        query = """
+        MATCH (s:Entity)-[:RELATES_TO]-(t:Entity)
+        WHERE id(s) < id(t)
+        RETURN s.id AS source_id, t.id AS target_id,
+               s.name AS source_name, t.name AS target_name,
+               s.description AS source_desc, t.description AS target_desc
+        """
+        with self.driver.session() as session:
+            result = session.run(query)
+            return [dict(record) for record in result]
+
+    def create_community_node(self, community_id: str, label: int, summary: str, entity_count: int) -> None:
+        """写入 Community 节点（幂等，MERGE），重复运行只更新摘要"""
+        query = """
+        MERGE (cm:Community {id: $community_id})
+        SET cm.label = $label,
+            cm.summary = $summary,
+            cm.entity_count = $entity_count
+        """
+        with self.driver.session() as session:
+            session.run(
+                query,
+                community_id=community_id,
+                label=label,
+                summary=summary,
+                entity_count=entity_count,
+            )
+
+    def create_belongs_to_relation(self, entity_id: str, community_id: str) -> None:
+        """写入 Entity-[:BELONGS_TO]->Community 关系"""
+        query = """
+        MATCH (e:Entity {id: $entity_id})
+        MATCH (cm:Community {id: $community_id})
+        MERGE (e)-[:BELONGS_TO]->(cm)
+        """
+        with self.driver.session() as session:
+            session.run(query, entity_id=entity_id, community_id=community_id)

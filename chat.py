@@ -58,6 +58,9 @@ def main() -> None:
             for i, source in enumerate(result["sources"], start=1):
                 print(f"  [{i}] {source}")
 
+        if result.get("token_usage"):
+            print(f"\n{result['token_usage'].display()}")
+
 
 if __name__ == "__main__":
     main()

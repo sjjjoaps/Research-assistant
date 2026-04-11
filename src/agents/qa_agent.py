@@ -16,6 +16,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from src.agents.base_agent import BaseAgent, Turn
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk, SemanticRetriever
+from src.token_tracker import TokenUsage
 
 RetrieverMode = Literal["semantic", "hybrid", "graph"]
 
@@ -123,6 +124,7 @@ class QAAgent(BaseAgent):
                 "sources": [],
                 "thread_id": thread_id,
                 "retriever_mode": self.retriever_mode,
+                "token_usage": None,
             }
 
         message = self.chain.invoke(
@@ -132,6 +134,7 @@ class QAAgent(BaseAgent):
                 "context": context,
             }
         )
+        token_usage = TokenUsage.from_langchain_message(message, self.llm.model_name)
 
         answer = str(message.content)
         self.append_assistant_message(thread_id, answer, sources)
@@ -141,4 +144,5 @@ class QAAgent(BaseAgent):
             "sources": sources,
             "thread_id": thread_id,
             "retriever_mode": self.retriever_mode,
+            "token_usage": token_usage,
         }
