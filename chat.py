@@ -20,12 +20,22 @@ def main() -> None:
     parser.add_argument("--thread-id", default="default", help="会话 ID，不同 ID 对应独立上下文")
     parser.add_argument("--top-k", type=int, default=3, help="每轮检索返回的 chunk 数")
     parser.add_argument("--max-history", type=int, default=5, help="携带的最大历史轮数")
+    parser.add_argument(
+        "--retriever-mode",
+        choices=["semantic", "hybrid", "graph"],
+        default="semantic",
+        help="检索模式：semantic(向量) / hybrid(向量+BM25) / graph(图检索)",
+    )
     args = parser.parse_args()
 
-    agent = QAAgent(top_k=args.top_k, max_history_turns=args.max_history)
+    agent = QAAgent(
+        top_k=args.top_k,
+        max_history_turns=args.max_history,
+        retriever_mode=args.retriever_mode,
+    )
 
     print("=" * 80)
-    print(f"学术文献问答助手  (thread_id={args.thread_id})")
+    print(f"学术文献问答助手  (thread_id={args.thread_id}, mode={args.retriever_mode})")
     print("输入 exit 或 quit 退出")
     print("=" * 80)
 

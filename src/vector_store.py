@@ -38,6 +38,16 @@ class VectorStore:
             return []
         return self._store.similarity_search(query, k=k)
 
+    def get_all_documents(self) -> list[Document]:
+        if self._store is None:
+            return []
+
+        documents: list[Document] = []
+        for value in self._store.docstore._dict.values():
+            if isinstance(value, Document):
+                documents.append(value)
+        return documents
+
     def save(self) -> None:
         if self._store is None:
             return

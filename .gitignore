@@ -1,3 +1,4 @@
 data/
 CLAUDE.md
 .env
+.claude/

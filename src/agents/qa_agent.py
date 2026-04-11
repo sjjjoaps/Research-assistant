@@ -1,12 +1,23 @@
 """
 QAAgent
-基于 BaseAgent 的首个具体实现：多轮上下文 + 语义检索 + RAG 回答
+基于 BaseAgent 的具体实现：多轮上下文 + 可选检索模式 + RAG 回答
+
+支持三种检索模式（通过 retriever_mode 参数切换）：
+  - "semantic"  ：仅 FAISS 向量检索（默认）
+  - "hybrid"    ：FAISS + BM25 融合检索（RRF）
+  - "graph"     ：基于 Neo4j 实体匹配的图检索
 """
+from __future__ import annotations
+
+from typing import Literal
+
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.base_agent import BaseAgent, Turn
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk, SemanticRetriever
+
+RetrieverMode = Literal["semantic", "hybrid", "graph"]
 
 
 _QA_AGENT_PROMPT = ChatPromptTemplate.from_messages(
@@ -30,11 +41,42 @@ _QA_AGENT_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
+def _make_retriever(mode: RetrieverMode, top_k: int):
+    """工厂函数：按模式创建对应检索器"""
+    if mode == "hybrid":
+        from src.hybrid_retriever import HybridRetriever
+        return HybridRetriever(top_k=top_k, semantic_top_k=top_k * 2, bm25_top_k=top_k * 2)
+    if mode == "graph":
+        from src.graph_retriever import GraphRetriever
+        return GraphRetriever(top_k=top_k, expand_entities=True)
+    # 默认 semantic
+    return SemanticRetriever(top_k=top_k)
+
+
 class QAAgent(BaseAgent):
-    def __init__(self, top_k: int = 3, max_history_turns: int = 5) -> None:
+    """
+    多轮 RAG 问答 Agent。
+
+    Parameters
+    ----------
+    top_k : int
+        每轮检索返回的 chunk 数量
+    max_history_turns : int
+        携带到 prompt 的最大历史轮数
+    retriever_mode : RetrieverMode
+        检索模式："semantic" / "hybrid" / "graph"
+    """
+
+    def __init__(
+        self,
+        top_k: int = 3,
+        max_history_turns: int = 5,
+        retriever_mode: RetrieverMode = "semantic",
+    ) -> None:
         super().__init__(max_history_turns=max_history_turns)
         self.top_k = top_k
-        self.retriever = SemanticRetriever(top_k=top_k)
+        self.retriever_mode = retriever_mode
+        self.retriever = _make_retriever(retriever_mode, top_k)
         self.llm = get_llm(temperature=0.1)
         self.chain = _QA_AGENT_PROMPT | self.llm
 
@@ -80,6 +122,7 @@ class QAAgent(BaseAgent):
                 "answer": answer,
                 "sources": [],
                 "thread_id": thread_id,
+                "retriever_mode": self.retriever_mode,
             }
 
         message = self.chain.invoke(
@@ -97,4 +140,5 @@ class QAAgent(BaseAgent):
             "answer": answer,
             "sources": sources,
             "thread_id": thread_id,
+            "retriever_mode": self.retriever_mode,
         }

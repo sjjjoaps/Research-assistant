@@ -1,7 +1,14 @@
 """
-Phase 10 Agent 测试
+Agent 测试（Phase10 / Phase11）
 用法：
-python tests/test_agent.py --question "AmpAgent解决了什么问题？" --thread-id t1 --top-k 3
+  # 语义检索（默认）
+  python tests/test_agent.py --question "AmpAgent解决了什么问题？" --thread-id t1 --top-k 3
+
+  # 混合检索
+  python tests/test_agent.py --question "AmpAgent解决了什么问题？" --retriever-mode hybrid
+
+  # 图检索
+  python tests/test_agent.py --question "AmpAgent解决了什么问题？" --retriever-mode graph
 """
 
 import sys
@@ -20,9 +27,15 @@ def main() -> None:
     parser.add_argument("--question", required=True, help="第一轮问题")
     parser.add_argument("--thread-id", default="test-thread", help="会话 ID")
     parser.add_argument("--top-k", type=int, default=3, help="每轮检索 chunk 数")
+    parser.add_argument(
+        "--retriever-mode",
+        choices=["semantic", "hybrid", "graph"],
+        default="semantic",
+        help="检索模式：semantic / hybrid / graph",
+    )
     args = parser.parse_args()
 
-    agent = QAAgent(top_k=args.top_k)
+    agent = QAAgent(top_k=args.top_k, retriever_mode=args.retriever_mode)
 
     print("=" * 80)
     print("[1] 第一轮问答")
