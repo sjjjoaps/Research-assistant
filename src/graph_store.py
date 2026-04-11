@@ -189,3 +189,18 @@ class GraphStore:
         """
         with self.driver.session() as session:
             session.run(query, entity_id=entity_id, community_id=community_id)
+
+    def get_community_summaries(self, limit: int = 5) -> list[dict]:
+        """按 entity_count 降序读取最大的若干 Community 摘要"""
+        query = """
+        MATCH (cm:Community)
+        RETURN cm.id AS id,
+               cm.label AS label,
+               cm.summary AS summary,
+               cm.entity_count AS entity_count
+        ORDER BY cm.entity_count DESC
+        LIMIT $limit
+        """
+        with self.driver.session() as session:
+            result = session.run(query, limit=limit)
+            return [dict(record) for record in result]
