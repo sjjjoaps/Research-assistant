@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     app_host: str = Field(default="127.0.0.1", alias="APP_HOST")
     app_port: int = Field(default=8000, alias="APP_PORT")
 
+    # 实体抽取配置
+    enable_entity_extraction: bool = Field(default=False, alias="ENABLE_ENTITY_EXTRACTION")
+    entity_extraction_max_chunks: int = Field(default=20, alias="ENTITY_EXTRACTION_MAX_CHUNKS")
+
     # 存储路径
     data_dir: Path = Field(default=ROOT_DIR / "data", alias="DATA_DIR")
     sqlite_path: Path = Field(default=ROOT_DIR / "data" / "metadata.db", alias="SQLITE_PATH")

@@ -20,12 +20,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="文献入库工具")
     parser.add_argument("--file", help="单个文件路径")
     parser.add_argument("--dir", help="批量入库目录")
+    parser.add_argument(
+        "--enable-entity-extraction",
+        action="store_true",
+        help="启用实体与关系抽取（默认关闭）",
+    )
     args = parser.parse_args()
 
     if not args.file and not args.dir:
         parser.error("--file 和 --dir 至少提供一个")
 
-    pipeline = IngestionPipeline()
+    pipeline = IngestionPipeline(enable_entity_extraction=args.enable_entity_extraction)
 
     if args.file:
         result = pipeline.ingest_file(args.file)
