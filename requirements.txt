@@ -1,0 +1,17 @@
+fastapi==0.135.3
+fitz==0.0.1.dev2
+langchain==1.2.15
+langchain_community==0.4.1
+langchain_core==1.2.28
+langchain_openai==1.1.12
+langchain_text_splitters==1.1.1
+neo4j==6.1.0
+networkx==3.4.2
+pydantic==2.12.5
+pydantic_settings==2.13.1
+python_docx==1.2.0
+rank_bm25==0.2.2
+Requests==2.33.1
+SQLAlchemy==2.0.49
+streamlit==1.52.2
+uvicorn==0.44.0
