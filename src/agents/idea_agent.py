@@ -30,19 +30,14 @@ class IdeaReport(BaseModel):
     )
 
 
+def _load_prompt(filename: str) -> str:
+    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+
+
 _IDEA_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "你是学术文献研究助手。请严格基于给定研究报告提取 Research Gap 和方向建议，"
-            "不允许引入未在报告中出现的信息。若证据不充分，必须在 confidence_note 中注明。",
-        ),
-        (
-            "human",
-            "研究问题：{question}\n\n"
-            "研究报告摘要：\n{report_summary}\n\n"
-            "请生成结构化 Idea 报告。",
-        ),
+        ("system", _load_prompt("idea_agent_system.md")),
+        ("human", _load_prompt("idea_agent_human.md")),
     ]
 )
 

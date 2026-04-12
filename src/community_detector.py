@@ -14,16 +14,14 @@ from src.graph_store import GraphStore
 from src.llm_client import get_llm
 
 
+def _load_prompt(filename: str) -> str:
+    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+
+
 _SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "你是知识图谱分析助手，请对给定实体群体生成100字以内的研究主题摘要。",
-        ),
-        (
-            "human",
-            "以下实体属于同一研究社区：\n{entities}\n请总结其研究主题：",
-        ),
+        ("system", _load_prompt("community_summary_system.md")),
+        ("human", _load_prompt("community_summary_human.md")),
     ]
 )
 

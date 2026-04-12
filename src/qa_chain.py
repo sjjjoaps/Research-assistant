@@ -8,22 +8,14 @@ from src.llm_client import get_llm
 from src.retriever import RetrievedChunk, SemanticRetriever
 
 
+def _load_prompt(filename: str) -> str:
+    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+
+
 _QA_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "你是学术文献问答助手。请严格基于给定上下文回答问题，不要编造。"
-            "如果上下文不足，请明确说明。"
-            "回答后给出来源编号（如 [1], [2]）。",
-        ),
-        (
-            "human",
-            "问题：{question}\n\n"
-            "上下文：\n{context}\n\n"
-            "请输出：\n"
-            "1) 简洁答案\n"
-            "2) 引用来源编号",
-        ),
+        ("system", _load_prompt("qa_chain_system.md")),
+        ("human", _load_prompt("qa_chain_human.md")),
     ]
 )
 

@@ -65,48 +65,28 @@ class SubQuestionList(BaseModel):
 # Prompts
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _load_prompt(filename: str) -> str:
+    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+
+
 _PLAN_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "你是学术研究规划助手。请将用户的研究问题拆解成 {max_n} 个以内的子问题，每个子问题应当具体、可独立检索，且彼此不重叠。聚焦于：定义/现状/方法/局限/趋势/空白 等角度。",
-        ),
+        ("system", _load_prompt("deep_research_plan_system.md")),
         ("human", "研究问题：{question}"),
     ]
 )
 
 _ANALYZE_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "你是学术文献分析助手。请严格基于给定检索上下文回答子问题，"
-            "不得编造未出现的信息。若证据不足，请明确写明'证据不足'并说明。",
-        ),
-        (
-            "human",
-            "子问题：{sub_question}\n\n"
-            "检索上下文：\n{context}\n\n"
-            "请输出：\n1) 证据约束结论\n2) 主要局限\n3) 引用来源编号",
-        ),
+        ("system", _load_prompt("deep_research_analyze_system.md")),
+        ("human", _load_prompt("deep_research_analyze_human.md")),
     ]
 )
 
 _REPORT_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "你是学术研究报告生成助手。请基于子问题分析结果，"
-            "生成一份结构完整的 Markdown 研究报告。"
-            "报告应包含：研究背景、子问题分析摘要、方法对比、主要不足与局限、初步 Research Gaps、参考来源。"
-            "严格基于给定证据，不得编造。",
-        ),
-        (
-            "human",
-            "研究问题：{question}\n\n"
-            "子问题分析结果：\n{sub_analyses}\n\n"
-            "{community_section}"
-            "请生成完整 Markdown 研究报告：",
-        ),
+        ("system", _load_prompt("deep_research_report_system.md")),
+        ("human", _load_prompt("deep_research_report_human.md")),
     ]
 )
 

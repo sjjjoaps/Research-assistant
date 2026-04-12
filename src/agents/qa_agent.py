@@ -21,23 +21,14 @@ from src.token_tracker import TokenUsage
 RetrieverMode = Literal["semantic", "hybrid", "graph"]
 
 
+def _load_prompt(filename: str) -> str:
+    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+
+
 _QA_AGENT_PROMPT = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            "你是学术文献问答助手。请严格基于给定上下文回答问题，不要编造。"
-            "如果上下文不足，请明确说明。"
-            "回答要简洁清晰，并在结尾标注来源编号（如 [1], [2]）。",
-        ),
-        (
-            "human",
-            "历史对话：\n{history}\n\n"
-            "当前问题：{question}\n\n"
-            "检索上下文：\n{context}\n\n"
-            "请输出：\n"
-            "1) 回答\n"
-            "2) 引用来源编号",
-        ),
+        ("system", _load_prompt("qa_agent_system.md")),
+        ("human", _load_prompt("qa_agent_human.md")),
     ]
 )
 
