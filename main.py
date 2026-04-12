@@ -8,7 +8,7 @@ FastAPI 应用入口
 import uvicorn
 from fastapi import FastAPI
 
-from api.routers import chat, documents, research
+from api.routers import chat, community, documents, research
 from api.schemas import HealthResponse
 from src.config import settings
 
@@ -22,6 +22,7 @@ app = FastAPI(
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(research.router)
+app.include_router(community.router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["health"])
