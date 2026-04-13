@@ -1,10 +1,24 @@
 """
 文献管理页
-- 展示已入库文献列表
+- 展示已入库文献列表（含处理状态）
 - 支持单文件 / 目录入库
+- 支持查看单个文档的详细状态
 """
 import streamlit as st
 import requests
+
+# 状态 → 显示标签映射
+_STATUS_LABEL = {
+    "pending":    "⏳ 等待",
+    "parsing":    "📄 解析中",
+    "chunking":   "✂️ 切块中",
+    "metadata":   "🔍 提取元数据",
+    "indexing":   "💾 写入索引",
+    "graph":      "🕸️ 写入图谱",
+    "extracting": "🧠 实体抽取",
+    "processed":  "✅ 完成",
+    "failed":     "❌ 失败",
+}
 
 
 def render(api_base: str) -> None:
@@ -33,11 +47,33 @@ def render(api_base: str) -> None:
                     "作者": d["authors"],
                     "年份": d["year"],
                     "关键词": d["keywords"],
+                    "状态": _STATUS_LABEL.get(d.get("status") or "", d.get("status") or "—"),
+                    "doc_id": d.get("doc_id") or "—",
                 }
                 for d in docs
             ],
             use_container_width=True,
         )
+
+        # ── 查看单个文档详细状态 ──────────────────────────────────────────────
+        with st.expander("查看文档详细状态"):
+            doc_ids = [d.get("doc_id") for d in docs if d.get("doc_id")]
+            if doc_ids:
+                selected = st.selectbox("选择 doc_id", doc_ids, key="status_doc_id")
+                if st.button("查询状态", key="status_query_btn"):
+                    try:
+                        resp = requests.get(f"{api_base}/documents/{selected}/status", timeout=10)
+                        if resp.ok:
+                            s = resp.json()
+                            st.json(s)
+                            if s.get("status") == "failed":
+                                st.error(f"失败步骤：{s['current_step']}\n错误：{s['error_message']}")
+                        else:
+                            st.error(f"查询失败：{resp.text}")
+                    except Exception as e:
+                        st.error(f"请求失败：{e}")
+            else:
+                st.info("暂无带 doc_id 的文档记录。")
     else:
         st.info("暂无已入库文献，请先执行入库操作。")
 
@@ -70,6 +106,7 @@ def render(api_base: str) -> None:
                             st.success(
                                 f"入库成功：{r['title']}  |  chunk 数：{r['chunk_count']}  |  实体数：{r['entity_count']}"
                             )
+                            st.caption(f"doc_id: {r.get('doc_id', '—')}")
                             st.session_state.pop("doc_list", None)
                         else:
                             st.error(f"入库失败：{resp.json().get('detail', resp.text)}")
@@ -98,7 +135,7 @@ def render(api_base: str) -> None:
                             results = resp.json()
                             st.success(f"批量入库完成，共处理 {len(results)} 个文件")
                             for r in results:
-                                st.write(f"- {r['title']}（chunk: {r['chunk_count']}）")
+                                st.write(f"- {r['title']}（chunk: {r['chunk_count']}，doc_id: {r.get('doc_id', '—')}）")
                             st.session_state.pop("doc_list", None)
                         else:
                             st.error(f"入库失败：{resp.json().get('detail', resp.text)}")

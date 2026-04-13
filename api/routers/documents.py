@@ -1,43 +1,82 @@
 """
 文献管理路由
-GET  /documents              — 列出所有已入库文献
-POST /documents/ingest-file  — 入库单个文件
-POST /documents/ingest-directory — 入库整个目录
+GET  /documents                    — 列出所有已入库文献（含处理状态）
+GET  /documents/{doc_id}/status    — 查询单个文档的详细处理状态
+POST /documents/ingest-file        — 入库单个文件
+POST /documents/ingest-directory   — 入库整个目录
 """
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import (
     DocumentItem,
+    DocumentStatusResponse,
     IngestDirectoryRequest,
     IngestFileRequest,
     IngestFileResult,
 )
 from src.database import MetadataDatabase
 from src.ingestion_pipeline import IngestionPipeline
+from src.storage.document_status_store import DocumentStatusStore
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
+def _get_status_store() -> DocumentStatusStore:
+    store = DocumentStatusStore()
+    store.init_db()
+    return store
+
+
 @router.get("", response_model=list[DocumentItem])
 def list_documents():
-    """返回 SQLite 中所有已入库文献的元数据"""
+    """返回 SQLite 中所有已入库文献的元数据，附带处理状态。"""
     db = MetadataDatabase()
     db.init_db()
     records = db.list_documents()
     db.close()
-    return [
-        DocumentItem(
+
+    status_store = _get_status_store()
+    items = []
+    for r in records:
+        status_str = None
+        if r.doc_id:
+            s = status_store.get(r.doc_id)
+            status_str = s.status if s else None
+        items.append(DocumentItem(
             id=r.id,
             file_path=r.file_path,
+            doc_id=r.doc_id,
             title=r.title,
             authors=r.authors,
             institution=r.institution,
             year=r.year,
             abstract=r.abstract,
             keywords=r.keywords,
-        )
-        for r in records
-    ]
+            status=status_str,
+        ))
+    status_store.close()
+    return items
+
+
+@router.get("/{doc_id}/status", response_model=DocumentStatusResponse)
+def get_document_status(doc_id: str):
+    """查询单个文档的详细处理状态。"""
+    status_store = _get_status_store()
+    s = status_store.get(doc_id)
+    status_store.close()
+    if s is None:
+        raise HTTPException(status_code=404, detail=f"未找到 doc_id={doc_id} 的状态记录")
+    return DocumentStatusResponse(
+        doc_id=s.doc_id,
+        file_path=s.file_path,
+        status=s.status,
+        current_step=s.current_step,
+        chunk_count=len(s.chunk_ids),
+        entity_count=len(s.entity_ids),
+        relation_count=len(s.relation_ids),
+        error_message=s.error_message,
+        updated_at=s.updated_at,
+    )
 
 
 @router.post("/ingest-file", response_model=IngestFileResult)

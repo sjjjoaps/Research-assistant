@@ -24,12 +24,26 @@ class HealthResponse(BaseModel):
 class DocumentItem(BaseModel):
     id: int
     file_path: str
+    doc_id: str | None = None
     title: str
     authors: str
     institution: str | None
     year: int | None
     abstract: str | None
     keywords: str
+    status: str | None = None          # 来自 DocumentStatusStore
+
+
+class DocumentStatusResponse(BaseModel):
+    doc_id: str
+    file_path: str
+    status: str
+    current_step: str
+    chunk_count: int
+    entity_count: int
+    relation_count: int
+    error_message: str | None
+    updated_at: str
 
 
 class IngestFileRequest(BaseModel):
@@ -44,6 +58,7 @@ class IngestDirectoryRequest(BaseModel):
 
 class IngestFileResult(BaseModel):
     file_path: str
+    doc_id: str
     record_id: int
     title: str
     chunk_count: int
