@@ -1,13 +1,15 @@
 """
 文献管理路由
-GET  /documents                    — 列出所有已入库文献（含处理状态）
-GET  /documents/{doc_id}/status    — 查询单个文档的详细处理状态
-POST /documents/ingest-file        — 入库单个文件
-POST /documents/ingest-directory   — 入库整个目录
+GET    /documents                    — 列出所有已入库文献（含处理状态）
+GET    /documents/{doc_id}/status    — 查询单个文档的详细处理状态
+POST   /documents/ingest-file        — 入库单个文件
+POST   /documents/ingest-directory   — 入库整个目录
+DELETE /documents/{doc_id}           — 精确删除文档（只删独占数据，共享实体/关系保留）
 """
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import (
+    DeleteDocumentResult,
     DocumentItem,
     DocumentStatusResponse,
     IngestDirectoryRequest,
@@ -107,3 +109,21 @@ def ingest_directory(req: IngestDirectoryRequest):
     finally:
         pipeline.close()
     return [IngestFileResult(**r) for r in results]
+
+
+@router.delete("/{doc_id}", response_model=DeleteDocumentResult)
+def delete_document(doc_id: str):
+    """精确删除文档。
+
+    只删除该文档独占的 chunk、向量和实体，被其他文档共享的实体和关系保留。
+    """
+    pipeline = IngestionPipeline()
+    try:
+        result = pipeline.delete_document(doc_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=e.args[0] if e.args else str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        pipeline.close()
+    return DeleteDocumentResult(**result)

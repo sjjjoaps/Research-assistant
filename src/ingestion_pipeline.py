@@ -9,6 +9,9 @@ Phase 2.3 变更：
 - 变更检测：同路径文件内容变化时，先清理旧 chunk/source 绑定再重建
 - 实体/关系写入统一走 merge 路径（entity_extractor 已改为自然键）
 - status.chunk_ids / entity_ids / relation_ids 更新为真实 ID
+
+Phase 2.4 变更：
+- 新增 delete_document(doc_id)：精确删除，只清理该文档独占数据，共享实体/关系保留
 """
 from pathlib import Path
 
@@ -224,6 +227,102 @@ class IngestionPipeline:
                 print(f"\n[ERROR] 入库失败: {file_path}\n原因: {e}")
 
         return results
+
+    def delete_document(self, doc_id: str) -> dict:
+        """精确删除文档，只清理该文档独占的数据，共享实体和关系保留。
+
+        执行顺序：
+        1. 查询状态记录，获取 file_path，标记为 deleting
+        2. 删除 FAISS 中该 doc_id 的向量
+        3. 删除 Neo4j 中该文档的 Chunk 节点（及 MENTIONS 关系）
+        4. 删除 Neo4j 中的 Document 节点
+        5. 删除失去所有 Chunk 支撑的 RELATES_TO 边
+        6. 删除孤立实体（无任何 MENTIONS 来源）
+        7. 删除 SQLite 元数据记录
+        8. 清理 ChunkTracker 记录
+        9. 删除状态记录
+
+        中途任何步骤失败时，状态记录会被标记为 delete_failed，保留 file_path
+        以便后续重试。
+
+        Args:
+            doc_id: 文档唯一标识。
+
+        Returns:
+            包含删除统计的字典。
+
+        Raises:
+            KeyError: doc_id 不存在时。
+        """
+        status = self.status_store.get(doc_id)
+        if status is None:
+            raise KeyError(f"未找到 doc_id={doc_id!r} 的文档记录")
+
+        file_path = status.file_path
+        print(f"\n[DELETE] 开始删除文档: {file_path} (doc_id={doc_id})")
+
+        # 标记为删除中，防止并发重入
+        status.status = "deleting"
+        status.current_step = "删除中"
+        self.status_store.upsert(status)
+
+        try:
+            # [1] FAISS 向量
+            deleted_vectors = self.vector_store.delete_by_doc_id(doc_id)
+            self.vector_store.save()
+            print(f"  FAISS 删除向量: {deleted_vectors} 条")
+
+            # [2] Neo4j Chunk 节点及 MENTIONS 关系
+            deleted_chunks = self.graph_store.delete_document_chunks(file_path)
+            print(f"  Neo4j 删除 Chunk: {deleted_chunks} 个")
+
+            # [3] Neo4j Document 节点
+            self.graph_store.delete_document_node(file_path)
+            print(f"  Neo4j 删除 Document 节点")
+
+            # [4] 失去 Chunk 支撑的 RELATES_TO 边
+            deleted_relations = self.graph_store.delete_stale_relations()
+            print(f"  Neo4j 删除孤立关系: {deleted_relations} 条")
+
+            # [5] 孤立实体
+            orphan_ids = self.graph_store.get_orphan_entity_ids()
+            deleted_entities = 0
+            if orphan_ids:
+                deleted_entities = self.graph_store.delete_entities_by_ids(orphan_ids)
+            print(f"  Neo4j 删除孤立实体: {deleted_entities} 个")
+
+            # [6] SQLite 元数据
+            self.database.delete_document(file_path)
+
+            # [7] ChunkTracker
+            self.chunk_tracker.delete_by_doc(doc_id)
+
+            # [8] 状态记录（最后删除，确保前面步骤均成功）
+            self.status_store.delete(doc_id)
+
+        except Exception as e:
+            self.status_store.mark_failed(
+                doc_id=doc_id,
+                step="deleting",
+                error=str(e),
+                file_path=file_path,
+            )
+            # mark_failed 会将 status 改为 "failed"，这里手动改为 delete_failed
+            s = self.status_store.get(doc_id)
+            if s is not None:
+                s.status = "delete_failed"
+                self.status_store.upsert(s)
+            raise
+
+        print(f"  [DELETE] 完成")
+        return {
+            "doc_id": doc_id,
+            "file_path": file_path,
+            "deleted_vectors": deleted_vectors,
+            "deleted_chunks": deleted_chunks,
+            "deleted_relations": deleted_relations,
+            "deleted_entities": deleted_entities,
+        }
 
     def close(self) -> None:
         self.database.close()

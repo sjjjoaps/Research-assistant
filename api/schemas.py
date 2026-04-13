@@ -59,11 +59,22 @@ class IngestDirectoryRequest(BaseModel):
 class IngestFileResult(BaseModel):
     file_path: str
     doc_id: str
-    record_id: int
-    title: str
-    chunk_count: int
-    entity_count: int
-    relation_count: int
+    skipped: bool = False
+    reason: str | None = None          # 跳过时说明原因，如 "already_processed"
+    record_id: int | None = None
+    title: str = ""
+    chunk_count: int = 0
+    entity_count: int = 0
+    relation_count: int = 0
+
+
+class DeleteDocumentResult(BaseModel):
+    doc_id: str
+    file_path: str
+    deleted_vectors: int
+    deleted_chunks: int
+    deleted_relations: int
+    deleted_entities: int
 
 
 # ──────────────────────────────────────────────────────────────────────────────

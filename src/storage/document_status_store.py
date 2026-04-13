@@ -7,6 +7,8 @@
 状态流转：
   pending -> parsing -> chunking -> metadata -> indexing -> graph -> extracting -> processed
                                                                                  -> failed（任意阶段均可跳转）
+  processed -> deleting -> (记录删除)
+            -> delete_failed（删除中途失败，可重试）
 """
 
 from __future__ import annotations
@@ -33,6 +35,8 @@ VALID_STATUSES = frozenset({
     "extracting",
     "processed",
     "failed",
+    "deleting",
+    "delete_failed",
 })
 
 

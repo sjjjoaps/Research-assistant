@@ -5,6 +5,9 @@ FAISS 向量存储模块
 Phase 2.3 变更：
 - add_chunks 将 doc_id 写入 chunk metadata，支持按文档过滤
 - 新增 delete_by_doc_id：保守实现，重建索引排除指定文档的向量
+
+Phase 2.4 变更：
+- save() 在 _store 为 None 时主动删除磁盘索引文件，防止重启后已删向量复现
 """
 from pathlib import Path
 
@@ -77,6 +80,11 @@ class VectorStore:
 
     def save(self) -> None:
         if self._store is None:
+            # 索引已清空：主动删除磁盘文件，防止重启后已删向量复现
+            for fname in ("index.faiss", "index.pkl"):
+                fpath = self.index_dir / fname
+                if fpath.exists():
+                    fpath.unlink()
             return
         self._store.save_local(str(self.index_dir))
 

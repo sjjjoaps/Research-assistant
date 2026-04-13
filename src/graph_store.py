@@ -353,6 +353,7 @@ class GraphStore:
 
         使用 DETACH DELETE 同时清除 HAS_CHUNK 和 MENTIONS 关系，
         实体节点本身不删除（由调用方决定是否清理孤立实体和孤立关系）。
+        Document 节点本身不在此删除，由 delete_document_node() 负责。
         """
         query = """
         MATCH (d:Document {file_path: $file_path})-[:HAS_CHUNK]->(c:Chunk)
@@ -364,15 +365,32 @@ class GraphStore:
             result = session.run(query, file_path=file_path).single()
             return int(result["cnt"]) if result else 0
 
+    def delete_document_node(self, file_path: str) -> bool:
+        """删除 Document 节点本身（及其所有残余关系），返回是否找到并删除。
+
+        应在 Chunk 节点已清理后调用，确保 Document 节点不再有 HAS_CHUNK 关系。
+        删除后同路径重新入库时不会复用旧节点的 entity_extracted 标志。
+        """
+        query = """
+        MATCH (d:Document {file_path: $file_path})
+        WITH d, count(d) AS cnt
+        DETACH DELETE d
+        RETURN cnt > 0 AS found
+        """
+        with self.driver.session() as session:
+            result = session.run(query, file_path=file_path).single()
+            return bool(result["found"]) if result else False
+
     def delete_stale_relations(self) -> int:
-        """删除两端实体均存在但没有任何 Chunk MENTIONS 支撑的 RELATES_TO 边。
+        """删除两端实体均存在但没有任何 Chunk 同时 MENTIONS 两端的 RELATES_TO 边。
 
-        判断逻辑：一条 RELATES_TO 边"有来源"当且仅当存在至少一个 Chunk 同时
-        MENTIONS 了该边的起点和终点实体。若两端实体都还在但没有任何 Chunk 同时
-        提及它们，则该关系是旧文档遗留的脏数据，应删除。
+        **语义说明（Phase 2.4 保守实现）**：
+        判断依据是"共现"而非"关系来源"——只要另一篇文档的某个 Chunk 同时
+        提及了两端实体，该关系就会被保留，即使该 Chunk 并未抽取出这条关系。
+        这意味着此方法只能清理"完全无 Chunk 共现支撑"的关系，无法精确删除
+        "仅由被删文档贡献、但两端实体仍被其他文档提及"的关系。
 
-        注意：这是保守实现，只删除"完全无 Chunk 支撑"的关系；
-        若需要更精细的"按文档来源"追踪，需在 Phase 2.4 引入关系来源表。
+        若需要精确的关系来源追踪，需在后续阶段引入 relation_sources 表。
         """
         query = """
         MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
