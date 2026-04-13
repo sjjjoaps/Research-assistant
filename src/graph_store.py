@@ -1,12 +1,23 @@
 """
 Neo4j 图存储模块
 负责创建约束、写入 Document/Chunk/Entity 节点及关系
+
+Phase 2.2 新增：
+- upsert_entity_with_merge  — 写入实体时合并描述，不覆盖
+- upsert_relation_with_merge — 写入关系时合并描述，不覆盖
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from neo4j import GraphDatabase
 
 from src.chunker import TextChunk
 from src.config import settings
 from src.metadata_extractor import DocumentMetadata
+
+if TYPE_CHECKING:
+    from src.ingestion.description_merger import DescriptionMerger
 
 
 class GraphStore:
@@ -94,6 +105,128 @@ class GraphStore:
                 entity_type=entity_type,
                 description=description,
             )
+
+    def upsert_entity_with_merge(
+        self,
+        entity_id: str,
+        name: str,
+        entity_type: str,
+        description: str | None,
+        merger: "DescriptionMerger",
+    ) -> bool:
+        """写入实体节点，合并描述而不是覆盖。
+
+        读取已有 description_list，追加新描述后调用 merger 生成合并摘要，
+        同时将原始列表和合并摘要一并写回 Neo4j。
+
+        注意：当前实现为读后写，并发安全由 Phase 2.5 补充。
+
+        Args:
+            entity_id: 实体唯一 ID。
+            name: 实体名称。
+            entity_type: 实体类型。
+            description: 本次新增描述（可为 None）。
+            merger: DescriptionMerger 实例。
+
+        Returns:
+            True 表示新建节点，False 表示更新已有节点。
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (e:Entity {id: $id})
+                RETURN coalesce(e.description_list, []) AS dl,
+                       coalesce(e.description, '') AS legacy_desc
+                """,
+                id=entity_id,
+            ).single()
+            is_new = result is None
+            existing: list[str] = list(result["dl"]) if result else []
+            # 兼容 Phase 2.2 之前写入的旧节点：description_list 为空但 description 有值时，
+            # 将旧 description 作为第一条历史描述，避免合并时静默丢失。
+            if result and not existing:
+                legacy = (result["legacy_desc"] or "").strip()
+                if legacy:
+                    existing = [legacy]
+
+            new_desc = (description or "").strip()
+            all_descs = merger._deduplicate(existing + ([new_desc] if new_desc else []))
+            merged = merger.merge(all_descs)
+
+            session.run(
+                """
+                MERGE (e:Entity {id: $id})
+                SET e.name = $name,
+                    e.type = $type,
+                    e.description = $desc,
+                    e.description_list = $dl
+                """,
+                id=entity_id,
+                name=name,
+                type=entity_type,
+                desc=merged,
+                dl=all_descs,
+            )
+            return is_new
+
+    def upsert_relation_with_merge(
+        self,
+        source_entity_id: str,
+        target_entity_id: str,
+        relation_type: str,
+        description: str | None,
+        merger: "DescriptionMerger",
+    ) -> bool:
+        """写入关系，合并描述而不是覆盖。
+
+        Args:
+            source_entity_id: 起点实体 ID。
+            target_entity_id: 终点实体 ID。
+            relation_type: 关系类型。
+            description: 本次新增描述（可为 None）。
+            merger: DescriptionMerger 实例。
+
+        Returns:
+            True 表示新建关系，False 表示更新已有关系。
+        """
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (s:Entity {id: $sid})-[r:RELATES_TO {relation_type: $rt}]->(t:Entity {id: $tid})
+                RETURN coalesce(r.description_list, []) AS dl,
+                       coalesce(r.description, '') AS legacy_desc
+                """,
+                sid=source_entity_id,
+                tid=target_entity_id,
+                rt=relation_type,
+            ).single()
+            is_new = result is None
+            existing: list[str] = list(result["dl"]) if result else []
+            # 兼容旧关系节点：description_list 为空但 description 有值时保留历史描述。
+            if result and not existing:
+                legacy = (result["legacy_desc"] or "").strip()
+                if legacy:
+                    existing = [legacy]
+
+            new_desc = (description or "").strip()
+            all_descs = merger._deduplicate(existing + ([new_desc] if new_desc else []))
+            merged = merger.merge(all_descs)
+
+            session.run(
+                """
+                MATCH (s:Entity {id: $sid})
+                MATCH (t:Entity {id: $tid})
+                MERGE (s)-[r:RELATES_TO {relation_type: $rt}]->(t)
+                SET r.description = $desc,
+                    r.description_list = $dl
+                """,
+                sid=source_entity_id,
+                tid=target_entity_id,
+                rt=relation_type,
+                desc=merged,
+                dl=all_descs,
+            )
+            return is_new
 
     def create_mentions_relation(self, chunk_id: str, entity_id: str) -> None:
         query = """
