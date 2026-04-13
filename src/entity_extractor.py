@@ -5,9 +5,15 @@
 Phase 2.2 变更：
 - RelationItem 新增可选 description 字段
 - 使用 upsert_entity_with_merge / upsert_relation_with_merge 替代直接覆盖写入
+
+Phase 2.3 变更：
+- _entity_id 改为基于自然键（normalized_name + entity_type），实现跨文档实体合并
+- extract_for_document 返回真实 entity_ids / relation_ids 列表
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import md5
+import re
+import unicodedata
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -55,6 +61,8 @@ class EntityExtractionStats:
     processed_chunks: int = 0
     created_entities: int = 0
     created_relations: int = 0
+    entity_ids: list[str] = field(default_factory=list)
+    relation_keys: list[str] = field(default_factory=list)
 
 
 class EntityExtractor:
@@ -65,9 +73,29 @@ class EntityExtractor:
         self._chain = _PROMPT | llm.with_structured_output(ExtractionResult)
 
     @staticmethod
-    def _entity_id(file_path: str, name: str, entity_type: str) -> str:
-        # Phase 2.1 将改为基于自然键（name + type）的 ID，届时跨文档合并才完全生效
-        raw = f"{file_path}::{entity_type}::{name}".lower().strip()
+    def _normalize_name(name: str) -> str:
+        """标准化实体名称，用于生成稳定的自然键。
+
+        处理步骤：
+        1. Unicode NFC 归一化（合并全角/半角、组合字符）
+        2. 转小写
+        3. 合并内部连续空白为单个空格
+        4. 去除首尾空白
+        """
+        normalized = unicodedata.normalize("NFC", name)
+        normalized = normalized.lower()
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    @staticmethod
+    def _entity_id(name: str, entity_type: str) -> str:
+        """基于自然键（normalized_name + entity_type）生成实体 ID。
+
+        跨文档同名同类型实体共享同一 ID，实现跨文档合并。
+        标准化处理内部多空格、全半角、Unicode 变体等常见脏数据。
+        """
+        normalized = EntityExtractor._normalize_name(name)
+        raw = f"{entity_type.lower()}::{normalized}"
         return md5(raw.encode("utf-8")).hexdigest()
 
     def extract_for_document(
@@ -77,6 +105,8 @@ class EntityExtractor:
         max_chunks: int | None = None,
     ) -> EntityExtractionStats:
         stats = EntityExtractionStats()
+        seen_entity_ids: set[str] = set()
+        seen_relation_keys: set[str] = set()
 
         effective_chunks = chunks[:max_chunks] if max_chunks is not None else chunks
 
@@ -86,8 +116,7 @@ class EntityExtractor:
 
             name_to_entity_id: dict[str, str] = {}
             for entity in result.entities:
-                entity_id = self._entity_id(file_path, entity.name, entity.entity_type)
-                # 使用合并写入，不覆盖已有描述；返回值表示是否为新建节点
+                entity_id = self._entity_id(entity.name, entity.entity_type)
                 is_new = self.graph_store.upsert_entity_with_merge(
                     entity_id=entity_id,
                     name=entity.name,
@@ -96,16 +125,17 @@ class EntityExtractor:
                     merger=self._merger,
                 )
                 self.graph_store.create_mentions_relation(chunk.chunk_id, entity_id)
-                name_to_entity_id[entity.name.strip().lower()] = entity_id
-                if is_new:
-                    stats.created_entities += 1
+                name_to_entity_id[self._normalize_name(entity.name)] = entity_id
+                if entity_id not in seen_entity_ids:
+                    seen_entity_ids.add(entity_id)
+                    if is_new:
+                        stats.created_entities += 1
 
             for relation in result.relations:
-                source_id = name_to_entity_id.get(relation.source_name.strip().lower())
-                target_id = name_to_entity_id.get(relation.target_name.strip().lower())
+                source_id = name_to_entity_id.get(self._normalize_name(relation.source_name))
+                target_id = name_to_entity_id.get(self._normalize_name(relation.target_name))
                 if not source_id or not target_id:
                     continue
-                # 使用合并写入，不覆盖已有关系描述；返回值表示是否为新建关系
                 is_new = self.graph_store.upsert_relation_with_merge(
                     source_entity_id=source_id,
                     target_entity_id=target_id,
@@ -113,8 +143,13 @@ class EntityExtractor:
                     description=relation.description,
                     merger=self._merger,
                 )
-                if is_new:
-                    stats.created_relations += 1
+                rel_key = f"{source_id}::{relation.relation_type}::{target_id}"
+                if rel_key not in seen_relation_keys:
+                    seen_relation_keys.add(rel_key)
+                    if is_new:
+                        stats.created_relations += 1
 
+        stats.entity_ids = list(seen_entity_ids)
+        stats.relation_keys = list(seen_relation_keys)
         self.graph_store.mark_document_entity_extracted(file_path)
         return stats

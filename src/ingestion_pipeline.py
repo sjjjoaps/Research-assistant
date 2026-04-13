@@ -3,10 +3,12 @@
 串联解析、切块、元数据提取、SQLite 写入、FAISS 写入、Neo4j 图写入
 可选：实体与关系抽取（通过 enable_entity_extraction 开关控制）
 
-Phase 1.1 新增：
-- 每个入库步骤前后更新 DocumentStatus
-- 任意步骤失败时写入 failed 状态和错误信息
-- 返回结果中包含 doc_id
+Phase 2.3 变更：
+- 集成 ChunkTracker，使用内容哈希生成稳定 chunk_id
+- 增量检测：同一文档未变化时直接跳过，不重复入库
+- 变更检测：同路径文件内容变化时，先清理旧 chunk/source 绑定再重建
+- 实体/关系写入统一走 merge 路径（entity_extractor 已改为自然键）
+- status.chunk_ids / entity_ids / relation_ids 更新为真实 ID
 """
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from src.document_parser import DocumentParser
 from src.entity_extractor import EntityExtractor
 from src.graph_store import GraphStore
 from src.metadata_extractor import MetadataExtractor
+from src.storage.chunk_tracker import ChunkTracker, compute_chunk_content_hash
 from src.storage.document_status_store import DocumentStatus, DocumentStatusStore, generate_doc_id
 from src.storage.extraction_cache import compute_file_hash
 from src.vector_store import VectorStore
@@ -37,25 +40,55 @@ class IngestionPipeline:
         self.vector_store = VectorStore()
         self.graph_store = GraphStore()
         self.status_store = DocumentStatusStore()
+        self.chunk_tracker = ChunkTracker()
 
         self.database.init_db()
         self.vector_store.load()
         self.graph_store.init_schema()
         self.status_store.init_db()
+        self.chunk_tracker.init_db()
 
         self._entity_extractor: EntityExtractor | None = (
             EntityExtractor(self.graph_store) if self._enable_entity_extraction else None
         )
 
+    # ------------------------------------------------------------------
+    # 公开接口
+    # ------------------------------------------------------------------
+
     def ingest_file(self, file_path: str | Path) -> dict:
         path = Path(file_path)
         total_steps = 7 if self._enable_entity_extraction else 6
 
-        # ── 计算内容身份（FileNotFoundError 在此传播，无需状态记录）──────────────
+        # ── 计算文件身份 ──────────────────────────────────────────────────────
         file_hash = compute_file_hash(path)
         doc_id = generate_doc_id(file_hash)
 
-        # ── 初始化状态对象，贯穿整个流程 ─────────────────────────────────────────
+        # ── 增量检测：未变化文档直接跳过 ──────────────────────────────────────
+        existing_status = self.status_store.get(doc_id)
+        if existing_status and existing_status.status == "processed":
+            print(f"\n[SKIP] 文档未变化，跳过入库: {path}")
+            # 从 SQLite 补全 record_id / title，保持返回结构与正常入库一致
+            db_record = self.database.get_document(str(path))
+            return {
+                "file_path": str(path),
+                "doc_id": doc_id,
+                "skipped": True,
+                "reason": "already_processed",
+                "record_id": db_record.id if db_record else None,
+                "title": db_record.title if db_record else "",
+                "chunk_count": len(existing_status.chunk_ids),
+                "entity_count": len(existing_status.entity_ids),
+                "relation_count": len(existing_status.relation_ids),
+            }
+
+        # ── 变更检测：同路径但内容已变化，先清理旧数据 ────────────────────────
+        old_status = self.status_store.get_by_path(str(path))
+        if old_status and old_status.doc_id != doc_id:
+            print(f"\n[UPDATE] 文档内容已变化，清理旧数据: {path}")
+            self._cleanup_old_document(old_status)
+
+        # ── 初始化状态对象 ────────────────────────────────────────────────────
         status = DocumentStatus(
             file_path=str(path),
             doc_id=doc_id,
@@ -73,15 +106,22 @@ class IngestionPipeline:
             print(f"\n[1/{total_steps}] 开始解析文档: {path}")
             parsed_document = self.document_parser.parse(path)
 
-            # [2] 切块
+            # [2] 切块（传入 doc_id 生成稳定 chunk_id）
             current_step = "chunking"
             status.status, status.current_step = "chunking", "文本切块"
             self.status_store.upsert(status)
             print(f"[2/{total_steps}] 开始切块")
-            chunks = self.chunker.chunk(parsed_document)
+            chunks = self.chunker.chunk(parsed_document, doc_id=doc_id)
             print(f"      切块完成，共 {len(chunks)} 个 chunk")
-            # Phase 1.1：用顺序占位 ID 记录数量；Phase 1.2 接入 ChunkTracker 后替换为内容哈希 ID
-            status.chunk_ids = [str(i) for i in range(len(chunks))]
+
+            # 注册 chunk 到 ChunkTracker
+            content_hashes = [compute_chunk_content_hash(c.content) for c in chunks]
+            chunk_ids = self.chunk_tracker.register_chunks(
+                doc_id=doc_id,
+                content_hashes=content_hashes,
+                texts=[c.content for c in chunks],
+            )
+            status.chunk_ids = chunk_ids
             self.status_store.upsert(status)
 
             # [3] 元数据
@@ -92,25 +132,28 @@ class IngestionPipeline:
             metadata = self.metadata_extractor.extract(parsed_document)
             print(f"      元数据提取完成，标题: {metadata.title}")
 
-            # [4] 写入 SQLite + FAISS
+            # [4] 写入 SQLite
             current_step = "indexing"
             status.status, status.current_step = "indexing", "写入 SQLite / FAISS"
             self.status_store.upsert(status)
             print(f"[4/{total_steps}] 写入 SQLite")
-            existing = self.database.get_document(str(path))
-            if existing is None:
+            existing_db = self.database.get_document(str(path))
+            if existing_db is None:
                 record_id = self.database.add_document(str(path), metadata, doc_id=doc_id)
                 print(f"      SQLite 写入完成，记录 ID: {record_id}")
             else:
-                record_id = existing.id
-                print(f"      文档已存在，跳过 SQLite 写入，记录 ID: {record_id}")
+                # 文档已存在（可能是内容变更后重新入库），更新元数据和 doc_id
+                self.database.update_document(str(path), metadata, doc_id=doc_id)
+                record_id = existing_db.id
+                print(f"      SQLite 更新完成，记录 ID: {record_id}")
 
+            # [5] 写入 FAISS
             print(f"[5/{total_steps}] 写入 FAISS")
             self.vector_store.add_chunks(chunks)
             self.vector_store.save()
             print("      FAISS 写入完成")
 
-            # [5] 写入 Neo4j
+            # [6] 写入 Neo4j
             current_step = "graph"
             status.status, status.current_step = "graph", "写入 Neo4j"
             self.status_store.upsert(status)
@@ -118,7 +161,7 @@ class IngestionPipeline:
             self.graph_store.add_document_with_chunks(str(path), metadata, chunks)
             print("      Neo4j 写入完成")
 
-            # [6] 实体抽取（可选）
+            # [7] 实体抽取（可选）
             entity_count = 0
             relation_count = 0
             if self._enable_entity_extraction and self._entity_extractor is not None:
@@ -136,9 +179,8 @@ class IngestionPipeline:
                     )
                     entity_count = stats.created_entities
                     relation_count = stats.created_relations
-                    # Phase 1.1：占位 ID，Phase 2.1 替换为真实实体/关系 ID
-                    status.entity_ids = [str(i) for i in range(entity_count)]
-                    status.relation_ids = [str(i) for i in range(relation_count)]
+                    status.entity_ids = stats.entity_ids
+                    status.relation_ids = stats.relation_keys
                     self.status_store.upsert(status)
                     print(f"      实体抽取完成，新增实体 {entity_count} 个，关系 {relation_count} 条")
 
@@ -147,7 +189,6 @@ class IngestionPipeline:
             self.status_store.upsert(status)
 
         except Exception as e:
-            # 状态写入失败不应掩盖原始入库异常，用 try/except 隔离
             try:
                 self.status_store.mark_failed(doc_id, current_step, str(e), file_path=str(path))
             except Exception:
@@ -157,6 +198,7 @@ class IngestionPipeline:
         return {
             "file_path": str(path),
             "doc_id": doc_id,
+            "skipped": False,
             "record_id": record_id,
             "title": metadata.title,
             "chunk_count": len(chunks),
@@ -187,3 +229,43 @@ class IngestionPipeline:
         self.database.close()
         self.graph_store.close()
         self.status_store.close()
+        self.chunk_tracker.close()
+
+    # ------------------------------------------------------------------
+    # 内部方法
+    # ------------------------------------------------------------------
+
+    def _cleanup_old_document(self, old_status: DocumentStatus) -> None:
+        """清理旧文档的 chunk/source 绑定，为增量更新做准备。
+
+        执行顺序：
+        1. 删除 FAISS 中旧 doc_id 的向量
+        2. 删除 Neo4j 中旧文档的 Chunk 节点（及 MENTIONS 关系）
+        3. 删除失去所有 Chunk 支撑的 RELATES_TO 边（旧文档独占的关系）
+        4. 清理孤立实体（无任何 MENTIONS 来源的实体）
+        5. 清理 ChunkTracker 中的旧记录
+        6. 删除旧状态记录
+        7. 重置 Neo4j 文档的实体抽取标志
+        """
+        old_doc_id = old_status.doc_id
+        file_path = old_status.file_path
+
+        deleted_vectors = self.vector_store.delete_by_doc_id(old_doc_id)
+        print(f"      [cleanup] FAISS 删除向量: {deleted_vectors} 条")
+
+        deleted_chunks = self.graph_store.delete_document_chunks(file_path)
+        print(f"      [cleanup] Neo4j 删除 Chunk: {deleted_chunks} 个")
+
+        # 先清理失去 Chunk 支撑的 RELATES_TO 边，再清理孤立实体
+        deleted_relations = self.graph_store.delete_stale_relations()
+        if deleted_relations:
+            print(f"      [cleanup] Neo4j 删除孤立关系: {deleted_relations} 条")
+
+        orphan_ids = self.graph_store.get_orphan_entity_ids()
+        if orphan_ids:
+            deleted_entities = self.graph_store.delete_entities_by_ids(orphan_ids)
+            print(f"      [cleanup] Neo4j 删除孤立实体: {deleted_entities} 个")
+
+        self.chunk_tracker.delete_by_doc(old_doc_id)
+        self.status_store.delete(old_doc_id)
+        self.graph_store.reset_document_entity_extracted(file_path)

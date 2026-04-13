@@ -1,6 +1,10 @@
 """
 SQLite 元数据存储模块
 使用 SQLAlchemy 2.0 ORM 管理论文元数据的增删查
+
+Phase 2.3 变更：
+- 新增 update_document：文档内容变更时更新元数据和 doc_id
+- 新增 delete_document_by_doc_id：按 doc_id 删除记录
 """
 from pathlib import Path
 from typing import Optional
@@ -88,6 +92,39 @@ class MetadataDatabase:
     def delete_document(self, file_path: str) -> bool:
         with self.session_factory() as session:
             stmt = select(DocumentRecord).where(DocumentRecord.file_path == file_path)
+            record = session.scalar(stmt)
+            if record is None:
+                return False
+            session.delete(record)
+            session.commit()
+            return True
+
+    def update_document(
+        self,
+        file_path: str,
+        metadata: "DocumentMetadata",
+        doc_id: Optional[str] = None,
+    ) -> bool:
+        """更新已有文档记录的元数据和 doc_id，返回是否找到并更新成功。"""
+        with self.session_factory() as session:
+            stmt = select(DocumentRecord).where(DocumentRecord.file_path == file_path)
+            record = session.scalar(stmt)
+            if record is None:
+                return False
+            record.doc_id = doc_id
+            record.title = metadata.title
+            record.authors = "; ".join(metadata.authors)
+            record.institution = metadata.institution
+            record.year = metadata.year
+            record.abstract = metadata.abstract
+            record.keywords = "; ".join(metadata.keywords)
+            session.commit()
+            return True
+
+    def delete_document_by_doc_id(self, doc_id: str) -> bool:
+        """按 doc_id 删除文档记录，返回是否找到并删除成功。"""
+        with self.session_factory() as session:
+            stmt = select(DocumentRecord).where(DocumentRecord.doc_id == doc_id)
             record = session.scalar(stmt)
             if record is None:
                 return False

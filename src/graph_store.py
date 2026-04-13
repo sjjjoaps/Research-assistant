@@ -5,6 +5,12 @@ Neo4j 图存储模块
 Phase 2.2 新增：
 - upsert_entity_with_merge  — 写入实体时合并描述，不覆盖
 - upsert_relation_with_merge — 写入关系时合并描述，不覆盖
+
+Phase 2.3 新增：
+- delete_document_chunks     — 删除文档的 Chunk 节点及 MENTIONS 关系
+- get_orphan_entity_ids      — 查找无 MENTIONS 来源的孤立实体
+- delete_entities_by_ids     — 批量删除实体节点
+- reset_document_entity_extracted — 重置实体抽取标志，允许重新抽取
 """
 from __future__ import annotations
 
@@ -337,3 +343,82 @@ class GraphStore:
         with self.driver.session() as session:
             result = session.run(query, limit=limit)
             return [dict(record) for record in result]
+
+    # ------------------------------------------------------------------
+    # Phase 2.3 — 增量更新 / 精确删除支持
+    # ------------------------------------------------------------------
+
+    def delete_document_chunks(self, file_path: str) -> int:
+        """删除文档的所有 Chunk 节点及其 MENTIONS 关系，返回删除数量。
+
+        使用 DETACH DELETE 同时清除 HAS_CHUNK 和 MENTIONS 关系，
+        实体节点本身不删除（由调用方决定是否清理孤立实体和孤立关系）。
+        """
+        query = """
+        MATCH (d:Document {file_path: $file_path})-[:HAS_CHUNK]->(c:Chunk)
+        WITH collect(c) AS chunks, size(collect(c)) AS cnt
+        FOREACH (c IN chunks | DETACH DELETE c)
+        RETURN cnt
+        """
+        with self.driver.session() as session:
+            result = session.run(query, file_path=file_path).single()
+            return int(result["cnt"]) if result else 0
+
+    def delete_stale_relations(self) -> int:
+        """删除两端实体均存在但没有任何 Chunk MENTIONS 支撑的 RELATES_TO 边。
+
+        判断逻辑：一条 RELATES_TO 边"有来源"当且仅当存在至少一个 Chunk 同时
+        MENTIONS 了该边的起点和终点实体。若两端实体都还在但没有任何 Chunk 同时
+        提及它们，则该关系是旧文档遗留的脏数据，应删除。
+
+        注意：这是保守实现，只删除"完全无 Chunk 支撑"的关系；
+        若需要更精细的"按文档来源"追踪，需在 Phase 2.4 引入关系来源表。
+        """
+        query = """
+        MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
+        WHERE NOT EXISTS {
+            MATCH (c:Chunk)-[:MENTIONS]->(s)
+            MATCH (c)-[:MENTIONS]->(t)
+        }
+        WITH collect(r) AS rels, size(collect(r)) AS cnt
+        FOREACH (r IN rels | DELETE r)
+        RETURN cnt
+        """
+        with self.driver.session() as session:
+            result = session.run(query).single()
+            return int(result["cnt"]) if result else 0
+
+    def get_orphan_entity_ids(self) -> list[str]:
+        """返回没有任何 MENTIONS 关系的实体 ID 列表（孤立实体）。"""
+        query = """
+        MATCH (e:Entity)
+        WHERE NOT ()-[:MENTIONS]->(e)
+        RETURN e.id AS entity_id
+        """
+        with self.driver.session() as session:
+            result = session.run(query)
+            return [r["entity_id"] for r in result]
+
+    def delete_entities_by_ids(self, entity_ids: list[str]) -> int:
+        """批量删除指定 ID 的实体节点及其所有关系，返回删除数量。"""
+        if not entity_ids:
+            return 0
+        query = """
+        MATCH (e:Entity)
+        WHERE e.id IN $ids
+        WITH collect(e) AS entities, size(collect(e)) AS cnt
+        FOREACH (e IN entities | DETACH DELETE e)
+        RETURN cnt
+        """
+        with self.driver.session() as session:
+            result = session.run(query, ids=entity_ids).single()
+            return int(result["cnt"]) if result else 0
+
+    def reset_document_entity_extracted(self, file_path: str) -> None:
+        """重置文档的实体抽取标志，允许重新抽取。"""
+        query = """
+        MATCH (d:Document {file_path: $file_path})
+        SET d.entity_extracted = false
+        """
+        with self.driver.session() as session:
+            session.run(query, file_path=file_path)

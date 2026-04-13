@@ -3,10 +3,11 @@ Chunk 追踪模块
 
 持久化记录 doc_id -> chunk_ids 的映射关系，为增量更新和精确删除提供基础。
 
-chunk_id 基于 doc_id + chunk 内容哈希生成，与位置无关：
-- 同文档更新后内容未变的 chunk → chunk_id 不变（来源追踪稳定）
+chunk_id 基于 doc_id + chunk 内容哈希 + 文档内出现序号生成：
+- 同文档更新后内容未变且位置不变的 chunk → chunk_id 不变（来源追踪稳定）
 - 内容变更的 chunk → 新 chunk_id（旧来源绑定自动失效）
-- chunk_index 仅作为位置元数据保存，不参与主键
+- 同文档内相同内容出现在不同位置 → 不同 chunk_id（避免主键冲突）
+- occurrence_index 参与主键，防止同文档内重复内容互相覆盖
 """
 
 from __future__ import annotations
@@ -22,17 +23,21 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from src.config import settings
 
 
-def generate_chunk_id(doc_id: str, content_hash: str) -> str:
-    """生成稳定的 chunk_id：基于 doc_id + chunk 内容哈希的 MD5。
+def generate_chunk_id(doc_id: str, content_hash: str, occurrence_index: int = 0) -> str:
+    """生成稳定的 chunk_id：基于 doc_id + chunk 内容哈希 + 文档内出现序号的 MD5。
+
+    occurrence_index 是同一文档内该内容哈希第几次出现（0-based），
+    用于区分文档内完全相同内容的多个 chunk，避免主键冲突。
 
     Args:
         doc_id: 文档唯一标识（即文件内容 MD5）。
         content_hash: 该 chunk 文本内容的 MD5，由调用方计算。
+        occurrence_index: 同文档内该内容哈希的出现序号（默认 0）。
 
     Returns:
         32 位十六进制字符串，作为 chunk 的长期主键。
     """
-    raw = f"{doc_id}::{content_hash}"
+    raw = f"{doc_id}::{content_hash}::{occurrence_index}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
@@ -109,7 +114,10 @@ class ChunkTracker:
     ) -> list[str]:
         """为文档注册 chunk，返回生成的 chunk_id 列表。
 
-        chunk_id 由 ``doc_id + content_hash`` 决定，与位置无关。
+        chunk_id 由 ``doc_id + content_hash + occurrence_index`` 决定。
+        occurrence_index 是同一文档内该内容哈希第几次出现（0-based），
+        确保文档内相同内容的多个 chunk 拥有不同主键。
+
         若该 doc_id 已有记录，会先清除旧记录再重新注册（用于文档更新场景）。
 
         Args:
@@ -117,7 +125,14 @@ class ChunkTracker:
             content_hashes: 每个 chunk 的内容哈希列表（由 ``compute_chunk_content_hash`` 生成）。
             texts: 可选，每个 chunk 的原始文本，用于生成预览（取前 100 字符）。
         """
-        chunk_ids = [generate_chunk_id(doc_id, ch) for ch in content_hashes]
+        # 统计每个 content_hash 在本次列表中的出现次数，生成 occurrence_index
+        occurrence_counter: dict[str, int] = {}
+        chunk_ids: list[str] = []
+        for ch in content_hashes:
+            occ = occurrence_counter.get(ch, 0)
+            chunk_ids.append(generate_chunk_id(doc_id, ch, occ))
+            occurrence_counter[ch] = occ + 1
+
         previews = texts or [""] * len(content_hashes)
 
         with self._session_factory() as session:
