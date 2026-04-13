@@ -9,6 +9,10 @@ Phase 2.2 变更：
 Phase 2.3 变更：
 - _entity_id 改为基于自然键（normalized_name + entity_type），实现跨文档实体合并
 - extract_for_document 返回真实 entity_ids / relation_ids 列表
+
+Phase 2.5 变更：
+- upsert_entity_with_merge / upsert_relation_with_merge 的并发安全由 GraphStore 内置细粒度锁保证
+  此模块无需额外同步
 """
 from dataclasses import dataclass, field
 from hashlib import md5

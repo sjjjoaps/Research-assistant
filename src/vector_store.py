@@ -8,7 +8,12 @@ Phase 2.3 变更：
 
 Phase 2.4 变更：
 - save() 在 _store 为 None 时主动删除磁盘索引文件，防止重启后已删向量复现
+
+Phase 2.5 变更：
+- 新增内置 threading.Lock，add_chunks / save / delete_by_doc_id 均在锁内执行
+  保证多线程并发入库时 FAISS 索引不被并发修改（FAISS 本身不是线程安全的）
 """
+import threading
 from pathlib import Path
 
 from langchain_core.documents import Document
@@ -25,6 +30,8 @@ class VectorStore:
         self.index_dir.mkdir(parents=True, exist_ok=True)
         self.embedder = Embedder()
         self._store: FAISS | None = None
+        # 保护 _store 的进程内锁；FAISS 不是线程安全的，所有写操作均在此锁内执行
+        self._lock = threading.Lock()
 
     def add_chunks(self, chunks: list[TextChunk]) -> None:
         if not chunks:
@@ -35,10 +42,11 @@ class VectorStore:
             for chunk in chunks
         ]
 
-        if self._store is None:
-            self._store = FAISS.from_documents(documents, self.embedder.langchain_embeddings)
-        else:
-            self._store.add_documents(documents)
+        with self._lock:
+            if self._store is None:
+                self._store = FAISS.from_documents(documents, self.embedder.langchain_embeddings)
+            else:
+                self._store.add_documents(documents)
 
     def delete_by_doc_id(self, doc_id: str) -> int:
         """删除指定 doc_id 的所有向量，返回删除数量。
@@ -46,22 +54,26 @@ class VectorStore:
         保守实现：过滤出需要保留的文档后重建 FAISS 索引。
         仅在 doc_id 非空且索引存在时执行。
         """
-        if not doc_id or self._store is None:
+        if not doc_id:
             return 0
 
-        all_docs = self.get_all_documents()
-        keep_docs = [d for d in all_docs if d.metadata.get("doc_id") != doc_id]
-        deleted = len(all_docs) - len(keep_docs)
+        with self._lock:
+            if self._store is None:
+                return 0
 
-        if deleted == 0:
-            return 0
+            all_docs = self._get_all_documents_unsafe()
+            keep_docs = [d for d in all_docs if d.metadata.get("doc_id") != doc_id]
+            deleted = len(all_docs) - len(keep_docs)
 
-        if keep_docs:
-            self._store = FAISS.from_documents(keep_docs, self.embedder.langchain_embeddings)
-        else:
-            self._store = None
+            if deleted == 0:
+                return 0
 
-        return deleted
+            if keep_docs:
+                self._store = FAISS.from_documents(keep_docs, self.embedder.langchain_embeddings)
+            else:
+                self._store = None
+
+            return deleted
 
     def similarity_search(self, query: str, k: int = 3) -> list[Document]:
         if self._store is None:
@@ -69,9 +81,13 @@ class VectorStore:
         return self._store.similarity_search(query, k=k)
 
     def get_all_documents(self) -> list[Document]:
+        with self._lock:
+            return self._get_all_documents_unsafe()
+
+    def _get_all_documents_unsafe(self) -> list[Document]:
+        """不加锁地读取所有文档，调用方必须已持有 self._lock。"""
         if self._store is None:
             return []
-
         documents: list[Document] = []
         for value in self._store.docstore._dict.values():
             if isinstance(value, Document):
@@ -79,14 +95,15 @@ class VectorStore:
         return documents
 
     def save(self) -> None:
-        if self._store is None:
-            # 索引已清空：主动删除磁盘文件，防止重启后已删向量复现
-            for fname in ("index.faiss", "index.pkl"):
-                fpath = self.index_dir / fname
-                if fpath.exists():
-                    fpath.unlink()
-            return
-        self._store.save_local(str(self.index_dir))
+        with self._lock:
+            if self._store is None:
+                # 索引已清空：主动删除磁盘文件，防止重启后已删向量复现
+                for fname in ("index.faiss", "index.pkl"):
+                    fpath = self.index_dir / fname
+                    if fpath.exists():
+                        fpath.unlink()
+                return
+            self._store.save_local(str(self.index_dir))
 
     def load(self) -> None:
         index_file = self.index_dir / "index.faiss"

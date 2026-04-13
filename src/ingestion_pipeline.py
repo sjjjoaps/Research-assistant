@@ -12,8 +12,18 @@ Phase 2.3 变更：
 
 Phase 2.4 变更：
 - 新增 delete_document(doc_id)：精确删除，只清理该文档独占数据，共享实体/关系保留
+- 删除流程引入 deleting / delete_failed 状态机
+
+Phase 2.5 变更：
+- 新增 ingest_files_concurrent()：ThreadPoolExecutor(max_workers) 控制并发入库
+- VectorStore 内置 threading.Lock，彻底消除 FAISS 并发写入风险
+- GraphStore 已在 upsert_entity/relation_with_merge 中加入细粒度锁，此处无需额外同步
+- ingest_files_concurrent 内置 per-doc_id claim 锁，防止同内容文件被并发重复处理
 """
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+import threading
 
 from src.chunker import DocumentChunker
 from src.config import settings
@@ -26,6 +36,17 @@ from src.storage.chunk_tracker import ChunkTracker, compute_chunk_content_hash
 from src.storage.document_status_store import DocumentStatus, DocumentStatusStore, generate_doc_id
 from src.storage.extraction_cache import compute_file_hash
 from src.vector_store import VectorStore
+
+
+@dataclass
+class BatchIngestResult:
+    """并发批量入库的汇总结果。"""
+    total: int = 0
+    succeeded: int = 0
+    skipped: int = 0
+    failed: int = 0
+    results: list[dict] = field(default_factory=list)
+    errors: list[dict] = field(default_factory=list)
 
 
 class IngestionPipeline:
@@ -227,6 +248,98 @@ class IngestionPipeline:
                 print(f"\n[ERROR] 入库失败: {file_path}\n原因: {e}")
 
         return results
+
+    def ingest_files_concurrent(
+        self,
+        file_paths: list[str | Path],
+        max_workers: int = 4,
+    ) -> BatchIngestResult:
+        """并发入库多个文件。
+
+        使用 ThreadPoolExecutor(max_workers) 控制并发数，单文件失败不影响其他文件。
+
+        线程安全保证：
+        - FAISS 写入：VectorStore 内置 threading.Lock，add_chunks / save 均在锁内执行
+        - Neo4j 实体/关系 upsert：GraphStore 内置细粒度锁，同一实体/关系串行化
+        - 同 doc_id 并发重复处理：per-doc_id claim 锁，确保同一文档只被一个线程处理
+
+        Args:
+            file_paths: 待入库文件路径列表。
+            max_workers: 最大并发线程数，默认 4。
+
+        Returns:
+            BatchIngestResult，包含成功/跳过/失败统计及各文件结果。
+        """
+        batch = BatchIngestResult(total=len(file_paths))
+        # per-doc_id claim 锁：防止同 doc_id 被两个线程同时处理
+        # key: doc_id, value: threading.Lock
+        _claim_locks: dict[str, threading.Lock] = {}
+        _claim_locks_meta = threading.Lock()
+
+        def _get_claim_lock(doc_id: str) -> threading.Lock:
+            with _claim_locks_meta:
+                if doc_id not in _claim_locks:
+                    _claim_locks[doc_id] = threading.Lock()
+                return _claim_locks[doc_id]
+
+        def _ingest_one(fp: str | Path) -> dict:
+            path = Path(fp)
+            file_hash = compute_file_hash(path)
+            doc_id = generate_doc_id(file_hash)
+
+            # 先做无锁快速检查，已处理则直接跳过（避免不必要的锁竞争）
+            existing_status = self.status_store.get(doc_id)
+            if existing_status and existing_status.status == "processed":
+                db_record = self.database.get_document(str(path))
+                return {
+                    "file_path": str(path),
+                    "doc_id": doc_id,
+                    "skipped": True,
+                    "reason": "already_processed",
+                    "record_id": db_record.id if db_record else None,
+                    "title": db_record.title if db_record else "",
+                    "chunk_count": len(existing_status.chunk_ids),
+                    "entity_count": len(existing_status.entity_ids),
+                    "relation_count": len(existing_status.relation_ids),
+                }
+
+            # 持有 claim 锁后再次检查，防止两个线程同时通过上面的快速检查
+            claim_lock = _get_claim_lock(doc_id)
+            with claim_lock:
+                existing_status = self.status_store.get(doc_id)
+                if existing_status and existing_status.status == "processed":
+                    db_record = self.database.get_document(str(path))
+                    return {
+                        "file_path": str(path),
+                        "doc_id": doc_id,
+                        "skipped": True,
+                        "reason": "already_processed",
+                        "record_id": db_record.id if db_record else None,
+                        "title": db_record.title if db_record else "",
+                        "chunk_count": len(existing_status.chunk_ids),
+                        "entity_count": len(existing_status.entity_ids),
+                        "relation_count": len(existing_status.relation_ids),
+                    }
+                # FAISS 和 Neo4j 的线程安全由各自内置锁保证，此处直接调用
+                return self.ingest_file(path)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_path = {executor.submit(_ingest_one, fp): fp for fp in file_paths}
+            for future in as_completed(future_to_path):
+                fp = future_to_path[future]
+                try:
+                    result = future.result()
+                    batch.results.append(result)
+                    if result.get("skipped"):
+                        batch.skipped += 1
+                    else:
+                        batch.succeeded += 1
+                except Exception as e:
+                    batch.failed += 1
+                    batch.errors.append({"file_path": str(fp), "error": str(e)})
+                    print(f"\n[ERROR] 并发入库失败: {fp}\n原因: {e}")
+
+        return batch
 
     def delete_document(self, doc_id: str) -> dict:
         """精确删除文档，只清理该文档独占的数据，共享实体和关系保留。

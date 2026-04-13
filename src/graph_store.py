@@ -11,9 +11,13 @@ Phase 2.3 新增：
 - get_orphan_entity_ids      — 查找无 MENTIONS 来源的孤立实体
 - delete_entities_by_ids     — 批量删除实体节点
 - reset_document_entity_extracted — 重置实体抽取标志，允许重新抽取
+
+Phase 2.5 新增：
+- _entity_lock / _relation_lock — 细粒度进程内锁，防止并发写入同一实体/关系时描述丢失
 """
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING
 
 from neo4j import GraphDatabase
@@ -32,6 +36,27 @@ class GraphStore:
             settings.neo4j_uri,
             auth=(settings.neo4j_username, settings.neo4j_password),
         )
+        # 细粒度进程内锁：key -> Lock
+        # 同一实体/关系的并发 upsert 会串行化，不同实体互不阻塞
+        # 已知 tradeoff：锁字典随入库实体/关系数量单调增长，不会自动回收。
+        # 对于长期运行且实体量极大的服务，可考虑 LRU 淘汰策略；
+        # 当前批量入库场景下内存占用可接受（每个 Lock 对象约 50 字节）。
+        self._entity_locks: dict[str, threading.Lock] = {}
+        self._relation_locks: dict[str, threading.Lock] = {}
+        self._entity_locks_meta = threading.Lock()   # 保护 _entity_locks 字典本身
+        self._relation_locks_meta = threading.Lock() # 保护 _relation_locks 字典本身
+
+    def _get_entity_lock(self, entity_id: str) -> threading.Lock:
+        with self._entity_locks_meta:
+            if entity_id not in self._entity_locks:
+                self._entity_locks[entity_id] = threading.Lock()
+            return self._entity_locks[entity_id]
+
+    def _get_relation_lock(self, relation_key: str) -> threading.Lock:
+        with self._relation_locks_meta:
+            if relation_key not in self._relation_locks:
+                self._relation_locks[relation_key] = threading.Lock()
+            return self._relation_locks[relation_key]
 
     def close(self) -> None:
         self.driver.close()
@@ -125,7 +150,8 @@ class GraphStore:
         读取已有 description_list，追加新描述后调用 merger 生成合并摘要，
         同时将原始列表和合并摘要一并写回 Neo4j。
 
-        注意：当前实现为读后写，并发安全由 Phase 2.5 补充。
+        并发安全：对同一 entity_id 的写入通过进程内细粒度锁串行化，
+        不同实体的写入互不阻塞。
 
         Args:
             entity_id: 实体唯一 ID。
@@ -137,43 +163,45 @@ class GraphStore:
         Returns:
             True 表示新建节点，False 表示更新已有节点。
         """
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (e:Entity {id: $id})
-                RETURN coalesce(e.description_list, []) AS dl,
-                       coalesce(e.description, '') AS legacy_desc
-                """,
-                id=entity_id,
-            ).single()
-            is_new = result is None
-            existing: list[str] = list(result["dl"]) if result else []
-            # 兼容 Phase 2.2 之前写入的旧节点：description_list 为空但 description 有值时，
-            # 将旧 description 作为第一条历史描述，避免合并时静默丢失。
-            if result and not existing:
-                legacy = (result["legacy_desc"] or "").strip()
-                if legacy:
-                    existing = [legacy]
+        lock = self._get_entity_lock(entity_id)
+        with lock:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (e:Entity {id: $id})
+                    RETURN coalesce(e.description_list, []) AS dl,
+                           coalesce(e.description, '') AS legacy_desc
+                    """,
+                    id=entity_id,
+                ).single()
+                is_new = result is None
+                existing: list[str] = list(result["dl"]) if result else []
+                # 兼容 Phase 2.2 之前写入的旧节点：description_list 为空但 description 有值时，
+                # 将旧 description 作为第一条历史描述，避免合并时静默丢失。
+                if result and not existing:
+                    legacy = (result["legacy_desc"] or "").strip()
+                    if legacy:
+                        existing = [legacy]
 
-            new_desc = (description or "").strip()
-            all_descs = merger._deduplicate(existing + ([new_desc] if new_desc else []))
-            merged = merger.merge(all_descs)
+                new_desc = (description or "").strip()
+                all_descs = merger._deduplicate(existing + ([new_desc] if new_desc else []))
+                merged = merger.merge(all_descs)
 
-            session.run(
-                """
-                MERGE (e:Entity {id: $id})
-                SET e.name = $name,
-                    e.type = $type,
-                    e.description = $desc,
-                    e.description_list = $dl
-                """,
-                id=entity_id,
-                name=name,
-                type=entity_type,
-                desc=merged,
-                dl=all_descs,
-            )
-            return is_new
+                session.run(
+                    """
+                    MERGE (e:Entity {id: $id})
+                    SET e.name = $name,
+                        e.type = $type,
+                        e.description = $desc,
+                        e.description_list = $dl
+                    """,
+                    id=entity_id,
+                    name=name,
+                    type=entity_type,
+                    desc=merged,
+                    dl=all_descs,
+                )
+                return is_new
 
     def upsert_relation_with_merge(
         self,
@@ -185,6 +213,9 @@ class GraphStore:
     ) -> bool:
         """写入关系，合并描述而不是覆盖。
 
+        并发安全：对同一 (source, relation_type, target) 三元组的写入通过
+        进程内细粒度锁串行化，不同关系的写入互不阻塞。
+
         Args:
             source_entity_id: 起点实体 ID。
             target_entity_id: 终点实体 ID。
@@ -195,44 +226,47 @@ class GraphStore:
         Returns:
             True 表示新建关系，False 表示更新已有关系。
         """
-        with self.driver.session() as session:
-            result = session.run(
-                """
-                MATCH (s:Entity {id: $sid})-[r:RELATES_TO {relation_type: $rt}]->(t:Entity {id: $tid})
-                RETURN coalesce(r.description_list, []) AS dl,
-                       coalesce(r.description, '') AS legacy_desc
-                """,
-                sid=source_entity_id,
-                tid=target_entity_id,
-                rt=relation_type,
-            ).single()
-            is_new = result is None
-            existing: list[str] = list(result["dl"]) if result else []
-            # 兼容旧关系节点：description_list 为空但 description 有值时保留历史描述。
-            if result and not existing:
-                legacy = (result["legacy_desc"] or "").strip()
-                if legacy:
-                    existing = [legacy]
+        relation_key = f"{source_entity_id}::{relation_type}::{target_entity_id}"
+        lock = self._get_relation_lock(relation_key)
+        with lock:
+            with self.driver.session() as session:
+                result = session.run(
+                    """
+                    MATCH (s:Entity {id: $sid})-[r:RELATES_TO {relation_type: $rt}]->(t:Entity {id: $tid})
+                    RETURN coalesce(r.description_list, []) AS dl,
+                           coalesce(r.description, '') AS legacy_desc
+                    """,
+                    sid=source_entity_id,
+                    tid=target_entity_id,
+                    rt=relation_type,
+                ).single()
+                is_new = result is None
+                existing: list[str] = list(result["dl"]) if result else []
+                # 兼容旧关系节点：description_list 为空但 description 有值时保留历史描述。
+                if result and not existing:
+                    legacy = (result["legacy_desc"] or "").strip()
+                    if legacy:
+                        existing = [legacy]
 
-            new_desc = (description or "").strip()
-            all_descs = merger._deduplicate(existing + ([new_desc] if new_desc else []))
-            merged = merger.merge(all_descs)
+                new_desc = (description or "").strip()
+                all_descs = merger._deduplicate(existing + ([new_desc] if new_desc else []))
+                merged = merger.merge(all_descs)
 
-            session.run(
-                """
-                MATCH (s:Entity {id: $sid})
-                MATCH (t:Entity {id: $tid})
-                MERGE (s)-[r:RELATES_TO {relation_type: $rt}]->(t)
-                SET r.description = $desc,
-                    r.description_list = $dl
-                """,
-                sid=source_entity_id,
-                tid=target_entity_id,
-                rt=relation_type,
-                desc=merged,
-                dl=all_descs,
-            )
-            return is_new
+                session.run(
+                    """
+                    MATCH (s:Entity {id: $sid})
+                    MATCH (t:Entity {id: $tid})
+                    MERGE (s)-[r:RELATES_TO {relation_type: $rt}]->(t)
+                    SET r.description = $desc,
+                        r.description_list = $dl
+                    """,
+                    sid=source_entity_id,
+                    tid=target_entity_id,
+                    rt=relation_type,
+                    desc=merged,
+                    dl=all_descs,
+                )
+                return is_new
 
     def create_mentions_relation(self, chunk_id: str, entity_id: str) -> None:
         query = """
