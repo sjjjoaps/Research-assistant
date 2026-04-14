@@ -32,9 +32,9 @@ def main() -> None:
     parser.add_argument("--max-subquestions", type=int, default=4, help="子问题上限")
     parser.add_argument(
         "--retriever-mode",
-        choices=["semantic", "hybrid", "graph"],
+        choices=["semantic", "hybrid", "graph", "local", "global", "mix"],
         default="hybrid",
-        help="检索模式：semantic / hybrid / graph",
+        help="检索模式：semantic / hybrid / graph / local / global / mix",
     )
     parser.add_argument("--with-idea", action="store_true", help="追加 Idea 报告")
     parser.add_argument("--use-community", action="store_true", help="附加社区视角章节")

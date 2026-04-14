@@ -22,9 +22,9 @@ def main() -> None:
     parser.add_argument("--max-history", type=int, default=5, help="携带的最大历史轮数")
     parser.add_argument(
         "--retriever-mode",
-        choices=["semantic", "hybrid", "graph"],
+        choices=["semantic", "hybrid", "graph", "local", "global", "mix"],
         default="semantic",
-        help="检索模式：semantic(向量) / hybrid(向量+BM25) / graph(图检索)",
+        help="检索模式：semantic / hybrid / graph / local / global / mix",
     )
     args = parser.parse_args()
 

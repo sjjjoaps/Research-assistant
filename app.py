@@ -8,7 +8,7 @@ Streamlit 应用入口
 """
 import streamlit as st
 
-from ui import page_chat, page_community, page_documents, page_research
+from ui import page_chat, page_community, page_documents, page_graph, page_research
 
 st.set_page_config(
     page_title="学术文献知识库助手",
@@ -25,7 +25,7 @@ with st.sidebar:
 
     page = st.radio(
         "导航",
-        ["文献管理", "多轮问答", "深度研究", "社区检测"],
+        ["文献管理", "多轮问答", "深度研究", "社区检测", "知识图谱"],
         key="nav_page",
     )
 
@@ -56,3 +56,5 @@ elif page == "深度研究":
     page_research.render(api_base)
 elif page == "社区检测":
     page_community.render(api_base)
+elif page == "知识图谱":
+    page_graph.render(api_base)

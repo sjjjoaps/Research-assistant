@@ -8,9 +8,13 @@ Deep Research Agent
   Step3 Analyze   → 对每个子问题生成证据约束结论
   Step4 Community → 若 use_community=True，附加社区摘要视角
   Step5 Report    → 汇总生成完整 Markdown 研究报告
+
+Phase 4.1 变更：
+- 引入 KeywordExtractor，对每个子问题提取关键词并以 debug 日志记录
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -20,9 +24,12 @@ from pydantic import BaseModel, Field
 from src.agents.base_agent import BaseAgent
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk
+from src.retrieval.keyword_extractor import KeywordExtractor
 from src.token_tracker import TokenUsage
 
-RetrieverMode = Literal["semantic", "hybrid", "graph"]
+logger = logging.getLogger(__name__)
+
+RetrieverMode = Literal["semantic", "hybrid", "graph", "local", "global", "mix"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -103,6 +110,15 @@ def _make_retriever(mode: RetrieverMode, top_k: int):
     if mode == "graph":
         from src.graph_retriever import GraphRetriever
         return GraphRetriever(top_k=top_k, expand_entities=True)
+    if mode == "local":
+        from src.retrieval.local_retriever import LocalRetriever
+        return LocalRetriever(top_k=top_k)
+    if mode == "global":
+        from src.retrieval.global_retriever import GlobalRetriever
+        return GlobalRetriever(top_k=top_k)
+    if mode == "mix":
+        from src.retrieval.mix_retriever import MixRetriever
+        return MixRetriever(top_k=top_k)
     from src.retriever import SemanticRetriever
     return SemanticRetriever(top_k=top_k)
 
@@ -138,7 +154,7 @@ class DeepResearchAgent(BaseAgent):
     max_subquestions : int
         子问题上限（LLM 生成时的约束）
     retriever_mode : RetrieverMode
-        检索模式：semantic / hybrid / graph
+        检索模式：semantic / hybrid / graph / local / global / mix
     use_community : bool
         是否附加社区摘要视角（需要先运行 CommunityDetector）
     """
@@ -162,6 +178,7 @@ class DeepResearchAgent(BaseAgent):
         # 普通文本链
         self._analyze_chain = _ANALYZE_PROMPT | self.llm
         self._report_chain = _REPORT_PROMPT | self.llm
+        self._keyword_extractor = KeywordExtractor()
 
     # ── Step 1：规划 ──────────────────────────────────────────────────────────
 
@@ -174,6 +191,11 @@ class DeepResearchAgent(BaseAgent):
     # ── Step 2+3：检索 + 局部分析 ─────────────────────────────────────────────
 
     def _retrieve_and_analyze(self, sub_question: str) -> SubQuestionResult:
+        kw = self._keyword_extractor.extract(sub_question)
+        logger.debug(
+            "子问题关键词 — ll: %s, hl: %s | 问题: %s",
+            kw.ll_keywords, kw.hl_keywords, sub_question,
+        )
         chunks = self.retriever.retrieve(sub_question)
         context, sources = _build_context(chunks)
 

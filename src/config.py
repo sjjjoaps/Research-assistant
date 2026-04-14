@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default=ROOT_DIR / "data", alias="DATA_DIR")
     sqlite_path: Path = Field(default=ROOT_DIR / "data" / "metadata.db", alias="SQLITE_PATH")
     faiss_index_dir: Path = Field(default=ROOT_DIR / "data" / "faiss", alias="FAISS_INDEX_DIR")
+    relation_faiss_index_dir: Path = Field(
+        default=ROOT_DIR / "data" / "relation_faiss",
+        alias="RELATION_FAISS_INDEX_DIR",
+    )
 
     # Neo4j 配置
     neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI")

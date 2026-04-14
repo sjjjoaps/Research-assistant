@@ -20,7 +20,7 @@ _qa_agents: dict[tuple, QAAgent] = {}
 def _get_agent(
     top_k: int,
     max_history: int,
-    retriever_mode: Literal["semantic", "hybrid", "graph"],
+    retriever_mode: Literal["semantic", "hybrid", "graph", "local", "global", "mix"],
 ) -> QAAgent:
     key = (top_k, max_history, retriever_mode)
     if key not in _qa_agents:
@@ -55,4 +55,6 @@ def chat(req: ChatRequest):
         thread_id=result["thread_id"],
         retriever_mode=result["retriever_mode"],
         token_usage=token_dict,
+        ll_keywords=result.get("ll_keywords", []),
+        hl_keywords=result.get("hl_keywords", []),
     )
