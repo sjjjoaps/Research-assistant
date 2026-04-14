@@ -14,6 +14,12 @@ Phase 2.3 新增：
 
 Phase 2.5 新增：
 - _entity_lock / _relation_lock — 细粒度进程内锁，防止并发写入同一实体/关系时描述丢失
+
+Phase 3.3 新增：
+- create_reference_node      — 创建/更新 Reference 占位节点
+- create_cites_relation      — 创建 Document -[:CITES]-> Reference 关系
+- get_document_citations     — 查询文档的所有引用
+- delete_document_citations  — 删除文档的所有 CITES 关系（Reference 节点保留）
 """
 from __future__ import annotations
 
@@ -69,6 +75,7 @@ class GraphStore:
             "CREATE INDEX document_title_index IF NOT EXISTS FOR (d:Document) ON (d.title)",
             "CREATE INDEX entity_name_index IF NOT EXISTS FOR (e:Entity) ON (e.name)",
             "CREATE CONSTRAINT community_id_unique IF NOT EXISTS FOR (cm:Community) REQUIRE cm.id IS UNIQUE",
+            "CREATE CONSTRAINT reference_id_unique IF NOT EXISTS FOR (r:Reference) REQUIRE r.id IS UNIQUE",
         ]
         with self.driver.session() as session:
             for query in queries:
@@ -325,6 +332,76 @@ class GraphStore:
         for chunk in chunks:
             self.create_chunk_node(chunk)
             self.create_has_chunk_relation(file_path, chunk.chunk_id)
+
+    # ------------------------------------------------------------------
+    # Phase 3.3 — Citation Graph
+    # ------------------------------------------------------------------
+
+    def create_reference_node(self, ref) -> None:
+        """创建或更新 Reference 占位节点。
+
+        Args:
+            ref: CitationRecord 实例。
+        """
+        query = """
+        MERGE (r:Reference {id: $ref_id})
+        SET r.raw_text = $raw_text,
+            r.title = $title,
+            r.authors = $authors,
+            r.year = $year,
+            r.doi = $doi
+        """
+        with self.driver.session() as session:
+            session.run(
+                query,
+                ref_id=ref.ref_id,
+                raw_text=ref.raw_text,
+                title=ref.title,
+                authors=ref.authors,
+                year=ref.year,
+                doi=ref.doi,
+            )
+
+    def create_cites_relation(self, file_path: str, ref_id: str) -> None:
+        """创建 Document -[:CITES]-> Reference 关系。"""
+        query = """
+        MATCH (d:Document {file_path: $file_path})
+        MATCH (r:Reference {id: $ref_id})
+        MERGE (d)-[:CITES]->(r)
+        """
+        with self.driver.session() as session:
+            session.run(query, file_path=file_path, ref_id=ref_id)
+
+    def get_document_citations(self, file_path: str) -> list[dict]:
+        """查询文档的所有引用，返回 Reference 节点属性列表。"""
+        query = """
+        MATCH (d:Document {file_path: $file_path})-[:CITES]->(r:Reference)
+        RETURN r.id AS ref_id, r.title AS title, r.authors AS authors,
+               r.year AS year, r.doi AS doi, r.raw_text AS raw_text
+        ORDER BY r.year DESC
+        """
+        with self.driver.session() as session:
+            result = session.run(query, file_path=file_path)
+            return [dict(record) for record in result]
+
+    def delete_document_citations(self, file_path: str) -> int:
+        """删除文档的所有 CITES 关系。
+
+        Reference 节点本身保留，供其他文档共享引用。
+
+        Returns:
+            删除的关系数量。
+        """
+        query = """
+        MATCH (d:Document {file_path: $file_path})-[c:CITES]->()
+        WITH collect(c) AS rels, count(c) AS deleted
+        FOREACH (r IN rels | DELETE r)
+        RETURN deleted
+        """
+        with self.driver.session() as session:
+            result = session.run(query, file_path=file_path)
+            record = result.single()
+            return record["deleted"] if record else 0
 
     # ------------------------------------------------------------------
     # Phase 12 — 社区检测支持

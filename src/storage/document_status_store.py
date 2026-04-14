@@ -5,7 +5,7 @@
 以及失败时的错误信息。支持断点续传和失败定位。
 
 状态流转：
-  pending -> parsing -> chunking -> metadata -> indexing -> graph -> extracting -> processed
+  pending -> parsing -> chunking -> metadata -> indexing -> graph -> citations -> extracting -> processed
                                                                                  -> failed（任意阶段均可跳转）
   processed -> deleting -> (记录删除)
             -> delete_failed（删除中途失败，可重试）
@@ -32,6 +32,7 @@ VALID_STATUSES = frozenset({
     "metadata",
     "indexing",
     "graph",
+    "citations",
     "extracting",
     "processed",
     "failed",

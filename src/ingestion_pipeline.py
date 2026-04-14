@@ -23,6 +23,11 @@ Phase 3.2 变更：
 - IngestionPipeline 新增 enable_section_recognition 参数，透传给 DocumentParser
 - 启用后 PDF 解析阶段会识别每页章节类型，写入 chunk metadata["section_type"]
 - 支持检索时按 section_type 过滤（如只检索 method / experiment 章节）
+
+Phase 3.3 变更：
+- IngestionPipeline 新增 enable_citation_extraction 参数
+- 启用后在 Neo4j 写入后提取参考文献，创建 Reference 节点和 CITES 关系
+- delete_document 同步删除文档的 CITES 关系（Reference 节点保留供共享）
 """
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -35,6 +40,7 @@ from src.database import MetadataDatabase
 from src.document_parser import DocumentParser
 from src.entity_extractor import EntityExtractor
 from src.graph_store import GraphStore
+from src.ingestion.citation_extractor import CitationExtractor
 from src.metadata_extractor import MetadataExtractor
 from src.storage.chunk_tracker import ChunkTracker, compute_chunk_content_hash
 from src.storage.document_status_store import DocumentStatus, DocumentStatusStore, generate_doc_id
@@ -59,12 +65,14 @@ class IngestionPipeline:
         enable_entity_extraction: bool | None = None,
         enable_modal_extraction: bool = False,
         enable_section_recognition: bool = False,
+        enable_citation_extraction: bool = False,
     ) -> None:
         self._enable_entity_extraction = (
             enable_entity_extraction
             if enable_entity_extraction is not None
             else settings.enable_entity_extraction
         )
+        self._enable_citation_extraction = enable_citation_extraction
 
         self.document_parser = DocumentParser(
             enable_modal_extraction=enable_modal_extraction,
@@ -87,6 +95,9 @@ class IngestionPipeline:
         self._entity_extractor: EntityExtractor | None = (
             EntityExtractor(self.graph_store) if self._enable_entity_extraction else None
         )
+        self._citation_extractor = (
+            CitationExtractor() if enable_citation_extraction else None
+        )
 
     # ------------------------------------------------------------------
     # 公开接口
@@ -95,6 +106,8 @@ class IngestionPipeline:
     def ingest_file(self, file_path: str | Path) -> dict:
         path = Path(file_path)
         total_steps = 7 if self._enable_entity_extraction else 6
+        if self._enable_citation_extraction:
+            total_steps += 1
 
         # ── 计算文件身份 ──────────────────────────────────────────────────────
         file_hash = compute_file_hash(path)
@@ -199,17 +212,32 @@ class IngestionPipeline:
             self.graph_store.add_document_with_chunks(str(path), metadata, chunks)
             print("      Neo4j 写入完成")
 
-            # [7] 实体抽取（可选）
+            # [7] 引用提取（可选）
+            citation_count = 0
+            if self._enable_citation_extraction and self._citation_extractor is not None:
+                current_step = "citations"
+                status.status, status.current_step = "citations", "引用提取"
+                self.status_store.upsert(status)
+                print(f"[7/{total_steps}] 开始引用提取")
+                citations = self._citation_extractor.extract(parsed_document.raw_text)
+                for ref in citations:
+                    self.graph_store.create_reference_node(ref)
+                    self.graph_store.create_cites_relation(str(path), ref.ref_id)
+                citation_count = len(citations)
+                print(f"      引用提取完成，共 {citation_count} 条")
+
+            # [N] 实体抽取（可选）
             entity_count = 0
             relation_count = 0
+            _entity_step = total_steps if self._enable_entity_extraction else None
             if self._enable_entity_extraction and self._entity_extractor is not None:
                 if self.graph_store.is_document_entity_extracted(str(path)):
-                    print(f"[7/{total_steps}] 实体抽取 — 已处理过，跳过")
+                    print(f"[{_entity_step}/{total_steps}] 实体抽取 — 已处理过，跳过")
                 else:
                     current_step = "extracting"
                     status.status, status.current_step = "extracting", "实体与关系抽取"
                     self.status_store.upsert(status)
-                    print(f"[7/{total_steps}] 开始实体与关系抽取（最多 {settings.entity_extraction_max_chunks} 个 chunk）")
+                    print(f"[{_entity_step}/{total_steps}] 开始实体与关系抽取（最多 {settings.entity_extraction_max_chunks} 个 chunk）")
                     stats = self._entity_extractor.extract_for_document(
                         file_path=str(path),
                         chunks=chunks,
@@ -242,6 +270,7 @@ class IngestionPipeline:
             "chunk_count": len(chunks),
             "entity_count": entity_count,
             "relation_count": relation_count,
+            "citation_count": citation_count,
         }
 
     def ingest_directory(self, directory: str | Path) -> list[dict]:
@@ -403,7 +432,12 @@ class IngestionPipeline:
             deleted_chunks = self.graph_store.delete_document_chunks(file_path)
             print(f"  Neo4j 删除 Chunk: {deleted_chunks} 个")
 
-            # [3] Neo4j Document 节点
+            # [3] Neo4j CITES 关系（Reference 节点保留供共享）
+            deleted_citations = self.graph_store.delete_document_citations(file_path)
+            if deleted_citations:
+                print(f"  Neo4j 删除 CITES 关系: {deleted_citations} 条")
+
+            # [4] Neo4j Document 节点
             self.graph_store.delete_document_node(file_path)
             print(f"  Neo4j 删除 Document 节点")
 
@@ -481,6 +515,11 @@ class IngestionPipeline:
 
         deleted_chunks = self.graph_store.delete_document_chunks(file_path)
         print(f"      [cleanup] Neo4j 删除 Chunk: {deleted_chunks} 个")
+
+        # 清理旧文档的 CITES 关系（Reference 节点保留供共享）
+        deleted_citations = self.graph_store.delete_document_citations(file_path)
+        if deleted_citations:
+            print(f"      [cleanup] Neo4j 删除 CITES 关系: {deleted_citations} 条")
 
         # 先清理失去 Chunk 支撑的 RELATES_TO 边，再清理孤立实体
         deleted_relations = self.graph_store.delete_stale_relations()

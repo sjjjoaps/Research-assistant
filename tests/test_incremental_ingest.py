@@ -181,6 +181,8 @@ class TestIncrementalIngestPipeline:
             pipeline = IngestionPipeline.__new__(IngestionPipeline)
             pipeline._enable_entity_extraction = False
             pipeline._entity_extractor = None
+            pipeline._enable_citation_extraction = False
+            pipeline._citation_extractor = None
 
             # 真实的 status_store 和 chunk_tracker（使用临时 DB）
             pipeline.status_store = DocumentStatusStore(db_path=tmp_path / "doc_status.db")

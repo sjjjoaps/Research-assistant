@@ -2,6 +2,7 @@
 文献管理路由
 GET    /documents                    — 列出所有已入库文献（含处理状态）
 GET    /documents/{doc_id}/status    — 查询单个文档的详细处理状态
+GET    /documents/{doc_id}/citations — 查询文档的引用列表
 POST   /documents/ingest-file        — 入库单个文件
 POST   /documents/ingest-directory   — 入库整个目录
 DELETE /documents/{doc_id}           — 精确删除文档（只删独占数据，共享实体/关系保留）
@@ -9,7 +10,9 @@ DELETE /documents/{doc_id}           — 精确删除文档（只删独占数据
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import (
+    CitationItem,
     DeleteDocumentResult,
+    DocumentCitationsResponse,
     DocumentItem,
     DocumentStatusResponse,
     IngestDirectoryRequest,
@@ -17,6 +20,7 @@ from api.schemas import (
     IngestFileResult,
 )
 from src.database import MetadataDatabase
+from src.graph_store import GraphStore
 from src.ingestion_pipeline import IngestionPipeline
 from src.storage.document_status_store import DocumentStatusStore
 
@@ -127,3 +131,25 @@ def delete_document(doc_id: str):
     finally:
         pipeline.close()
     return DeleteDocumentResult(**result)
+
+
+@router.get("/{doc_id}/citations", response_model=DocumentCitationsResponse)
+def get_document_citations(doc_id: str):
+    """查询文档的引用列表。"""
+    status_store = _get_status_store()
+    s = status_store.get(doc_id)
+    status_store.close()
+    if s is None:
+        raise HTTPException(status_code=404, detail=f"未找到 doc_id={doc_id}")
+
+    graph_store = GraphStore()
+    graph_store.init_schema()
+    citations_raw = graph_store.get_document_citations(s.file_path)
+    graph_store.close()
+
+    return DocumentCitationsResponse(
+        doc_id=doc_id,
+        file_path=s.file_path,
+        citation_count=len(citations_raw),
+        citations=[CitationItem(**c) for c in citations_raw],
+    )

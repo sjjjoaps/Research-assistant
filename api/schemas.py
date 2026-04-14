@@ -66,6 +66,7 @@ class IngestFileResult(BaseModel):
     chunk_count: int = 0
     entity_count: int = 0
     relation_count: int = 0
+    citation_count: int = 0
 
 
 class DeleteDocumentResult(BaseModel):
@@ -75,6 +76,22 @@ class DeleteDocumentResult(BaseModel):
     deleted_chunks: int
     deleted_relations: int
     deleted_entities: int
+
+
+class CitationItem(BaseModel):
+    ref_id: str
+    title: str
+    authors: str
+    year: str
+    doi: str
+    raw_text: str
+
+
+class DocumentCitationsResponse(BaseModel):
+    doc_id: str
+    file_path: str
+    citation_count: int
+    citations: list[CitationItem]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
