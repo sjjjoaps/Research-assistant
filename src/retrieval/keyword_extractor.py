@@ -153,18 +153,8 @@ _HL_PHRASE_RE = re.compile(
     r"[\u4e00-\u9fffA-Za-z0-9.+\-]{0,10}(?:研究趋势|发展趋势|应用挑战|研究方向|研究现状|技术进展|主要挑战)"
 )
 
-_LLM_PROMPT = (
-    "你是一个学术检索关键词提取专家。\n"
-    "请从用户查询中提取两类关键词：\n"
-    "- ll_keywords: 具体实体、模型、数据集、方法名、任务名\n"
-    "- hl_keywords: 研究主题、趋势、方向、宏观问题\n\n"
-    "要求：\n"
-    "1. 只返回 JSON，不要解释。\n"
-    "2. 尽量保留原始术语大小写。\n"
-    "3. 每类最多返回 8 个关键词。\n\n"
-    "查询: {query}\n\n"
-    '{{"ll_keywords": ["..."], "hl_keywords": ["..."]}}'
-)
+with open("prompt/keyword_extractor_fallback.md", "r", encoding="utf-8") as f:
+    _LLM_PROMPT = f.read()
 
 
 @dataclass

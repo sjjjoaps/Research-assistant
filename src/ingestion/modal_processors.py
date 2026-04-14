@@ -33,6 +33,10 @@ from langchain_core.messages import HumanMessage
 logger = logging.getLogger(__name__)
 
 
+def _load_prompt(filename: str) -> str:
+    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+
+
 @dataclass
 class ModalContent:
     """多模态内容的统一数据结构。
@@ -77,13 +81,8 @@ class ImageProcessor(BaseModalProcessor):
     LLM 采用懒初始化：首次调用 process() 时才创建，初始化失败时降级返回空描述。
     """
 
-    _SYSTEM_PROMPT = (
-        "你是一个学术文献分析助手。请用中文简洁描述图片的内容，"
-        "重点说明图片展示的数据、结构或概念，以便后续检索使用。"
-        "如果是图表，请描述坐标轴、趋势和关键数据点。"
-        "如果是架构图，请描述各模块及其关系。"
-        "描述控制在 200 字以内。"
-    )
+    _SYSTEM_PROMPT = _load_prompt("modal_image_system.md")
+    _HUMAN_PROMPT = _load_prompt("modal_image_human.md")
 
     def __init__(self) -> None:
         self._llm = None  # 懒初始化，首次 process() 时创建
@@ -103,13 +102,13 @@ class ImageProcessor(BaseModalProcessor):
         try:
             llm = self._get_llm()
             caption_hint = f"图片标题：{caption}\n" if caption else ""
-            prompt = (
-                f"{caption_hint}"
-                f"位置：{position_hint}（第 {page_number + 1} 页）\n"
-                "请描述这张图片的内容。"
+            prompt = self._HUMAN_PROMPT.format(
+                caption_hint=caption_hint,
+                position_hint=position_hint,
+                page_number=page_number + 1,
             )
             message = HumanMessage(content=[
-                {"type": "text", "text": prompt},
+                {"type": "text", "text": f"{self._SYSTEM_PROMPT}\n\n{prompt}"},
                 {"type": "image_url", "image_url": {"url": raw_content}},
             ])
             response = llm.invoke([message])
@@ -125,11 +124,8 @@ class TableProcessor(BaseModalProcessor):
     LLM 采用懒初始化：首次调用 process() 时才创建，初始化失败时降级返回空描述。
     """
 
-    _SYSTEM_PROMPT = (
-        "你是一个学术文献分析助手。请用中文简洁描述以下表格的内容，"
-        "重点说明表格的主题、列含义、关键数据和结论，以便后续检索使用。"
-        "描述控制在 300 字以内。"
-    )
+    _SYSTEM_PROMPT = _load_prompt("modal_table_system.md")
+    _HUMAN_PROMPT = _load_prompt("modal_table_human.md")
 
     def __init__(self) -> None:
         self._llm = None  # 懒初始化，首次 process() 时创建
@@ -151,9 +147,12 @@ class TableProcessor(BaseModalProcessor):
             caption_hint = f"表格标题：{caption}\n" if caption else ""
             prompt = (
                 f"{self._SYSTEM_PROMPT}\n\n"
-                f"{caption_hint}"
-                f"位置：{position_hint}（第 {page_number + 1} 页）\n\n"
-                f"表格内容：\n{raw_content}"
+                + self._HUMAN_PROMPT.format(
+                    caption_hint=caption_hint,
+                    position_hint=position_hint,
+                    page_number=page_number + 1,
+                    raw_content=raw_content,
+                )
             )
             response = llm.invoke(prompt)
             return response.content.strip()

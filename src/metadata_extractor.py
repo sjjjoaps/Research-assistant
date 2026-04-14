@@ -30,7 +30,7 @@ with open("prompt/extractor_prompt.md", "r", encoding="utf-8") as f:
     _SYSTEM_PROMPT = f.read()
     
 _PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _SYSTEM_PROMPT), ("human", "{input_text}")]
+    [("system", _SYSTEM_PROMPT), ("human", open("prompt/metadata_extractor_human.md", "r", encoding="utf-8").read())]
 )
 
 
@@ -84,11 +84,7 @@ class MetadataExtractor:
         context = first_page[:5000]
     
         try:
-            #input_text 是因为在ChatPromptTemplate中定义("human", "{input_text}") 所以需要传递, 如果跟着变成input,那么invoke这里就需要传input。
-            result = self._chain.invoke({
-                "input_text": f"以下是论文首页文本(最多 5000 字符)请提取：标题、作者列表、发表年份、摘要、关键词:\n{context}"}
-                )
-            print(result)
+            result = self._chain.invoke({"context": context})
             return result
         except Exception as e:
             print(f"[MetadataExtractor] LLM 提取失败，降级为正则提取。原因: {e}")

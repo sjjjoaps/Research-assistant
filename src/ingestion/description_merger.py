@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -23,13 +22,10 @@ from src.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
 
-# _SUMMARIZE_SYSTEM = (
-#     "你是学术知识图谱助手。将同一实体或关系的多条描述合并为一条简洁、完整的中文描述。"
-#     "要求：保留所有关键信息，去除重复内容，不超过 300 字，直接输出合并结果，不加前缀或解释。"
-# )
-
 with open("prompt/description_merger.md", "r", encoding="utf-8") as f:
-        _SUMMARIZE_SYSTEM = f.read()
+    _SUMMARIZE_SYSTEM = f.read()
+with open("prompt/description_merger_human.md", "r", encoding="utf-8") as f:
+    _SUMMARIZE_HUMAN = f.read()
 
 class DescriptionMerger:
     """实体/关系描述合并器。
@@ -94,7 +90,7 @@ class DescriptionMerger:
         combined = self.separator.join(descriptions)
         messages = [
             SystemMessage(content=_SUMMARIZE_SYSTEM),
-            HumanMessage(content=f"请合并以下描述：\n\n{combined}"),
+            HumanMessage(content=_SUMMARIZE_HUMAN.format(combined=combined)),
         ]
         try:
             response = self._llm.invoke(messages)

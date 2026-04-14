@@ -42,6 +42,11 @@
 - `mix`：综合 `semantic + local + global` 三路结果做统一融合
 - 前端、CLI、API 已全部支持这三种新模式
 
+### Prompt 管理（Phase 5.1）
+- 所有新增和核心 LLM 调用 prompt 统一放在 `prompt/` 目录维护
+- 已补齐关键词抽取、引用解析、多模态图片/表格描述、描述合并、元数据抽取、实体关系抽取的人类提示模板
+- 新增 `tests/test_prompt_quality.py`，检查关键 prompt 文件存在且代码从 `prompt/` 目录加载
+
 ### 深度研究（Plan-Execute-Report）
 1. LLM 将研究问题拆解为 3~5 个子问题
 2. 对每个子问题独立检索 + 局部分析

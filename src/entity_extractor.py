@@ -55,7 +55,7 @@ _PROMPT = ChatPromptTemplate.from_messages(
         ),
         (
             "human",
-            "请从以下文本中抽取实体与关系：\n\n{text}",
+            open("prompt/relation_extra_human.md", "r", encoding="utf-8").read(),
         ),
     ]
 )

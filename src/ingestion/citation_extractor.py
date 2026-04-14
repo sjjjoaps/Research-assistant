@@ -36,13 +36,8 @@ _REF_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
-_LLM_PROMPT = (
-    "Parse the following academic reference into structured fields.\n"
-    "Return a JSON object with keys: title, authors, year, doi.\n"
-    "If a field cannot be determined, use an empty string.\n"
-    "Respond with ONLY the JSON object, no explanation.\n\n"
-    "Reference:\n{text}"
-)
+with open("prompt/citation_extractor_fallback.md", "r", encoding="utf-8") as f:
+    _LLM_PROMPT = f.read()
 
 _MAX_REFERENCES = 100  # 单文档最多处理引用数，防止超大文档消耗过多 LLM 调用
 
