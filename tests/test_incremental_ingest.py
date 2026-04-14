@@ -196,6 +196,7 @@ class TestIncrementalIngestPipeline:
             pipeline.metadata_extractor = MagicMock()
             pipeline.database = MagicMock()
             pipeline.vector_store = MagicMock()
+            pipeline.relation_vector_store = MagicMock()
             pipeline.graph_store = MagicMock()
 
             return pipeline
@@ -258,6 +259,7 @@ class TestIncrementalIngestPipeline:
         pipeline.database.add_document.return_value = 1
         pipeline.graph_store.is_document_entity_extracted.return_value = False
         pipeline.vector_store.delete_by_doc_id.return_value = 0
+        pipeline.relation_vector_store.delete_by_doc_id.return_value = 0
         pipeline.graph_store.delete_document_chunks.return_value = 0
         pipeline.graph_store.get_orphan_entity_ids.return_value = []
 
@@ -265,6 +267,7 @@ class TestIncrementalIngestPipeline:
 
         # 应调用清理
         pipeline.vector_store.delete_by_doc_id.assert_called_once_with(old_doc_id)
+        pipeline.relation_vector_store.delete_by_doc_id.assert_called_once_with(old_doc_id)
         pipeline.graph_store.delete_document_chunks.assert_called_once_with(str(txt))
         assert result["skipped"] is False
         txt.unlink(missing_ok=True)

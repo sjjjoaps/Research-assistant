@@ -45,6 +45,7 @@ from src.metadata_extractor import MetadataExtractor
 from src.storage.chunk_tracker import ChunkTracker, compute_chunk_content_hash
 from src.storage.document_status_store import DocumentStatus, DocumentStatusStore, generate_doc_id
 from src.storage.extraction_cache import compute_file_hash
+from src.storage.relation_vector_store import RelationVectorStore
 from src.vector_store import VectorStore
 
 
@@ -82,12 +83,14 @@ class IngestionPipeline:
         self.metadata_extractor = MetadataExtractor()
         self.database = MetadataDatabase()
         self.vector_store = VectorStore()
+        self.relation_vector_store = RelationVectorStore()
         self.graph_store = GraphStore()
         self.status_store = DocumentStatusStore()
         self.chunk_tracker = ChunkTracker()
 
         self.database.init_db()
         self.vector_store.load()
+        self.relation_vector_store.load()
         self.graph_store.init_schema()
         self.status_store.init_db()
         self.chunk_tracker.init_db()
@@ -248,6 +251,8 @@ class IngestionPipeline:
                     status.entity_ids = stats.entity_ids
                     status.relation_ids = stats.relation_keys
                     self.status_store.upsert(status)
+                    self.relation_vector_store.add_relations(stats.relation_records)
+                    self.relation_vector_store.save()
                     print(f"      实体抽取完成，新增实体 {entity_count} 个，关系 {relation_count} 条")
 
             # ── 完成 ──────────────────────────────────────────────────────────
@@ -428,6 +433,11 @@ class IngestionPipeline:
             self.vector_store.save()
             print(f"  FAISS 删除向量: {deleted_vectors} 条")
 
+            deleted_relation_vectors = self.relation_vector_store.delete_by_doc_id(doc_id)
+            self.relation_vector_store.save()
+            if deleted_relation_vectors:
+                print(f"  关系索引删除向量: {deleted_relation_vectors} 条")
+
             # [2] Neo4j Chunk 节点及 MENTIONS 关系
             deleted_chunks = self.graph_store.delete_document_chunks(file_path)
             print(f"  Neo4j 删除 Chunk: {deleted_chunks} 个")
@@ -483,6 +493,7 @@ class IngestionPipeline:
             "deleted_chunks": deleted_chunks,
             "deleted_relations": deleted_relations,
             "deleted_entities": deleted_entities,
+            "deleted_relation_vectors": deleted_relation_vectors,
         }
 
     def close(self) -> None:
@@ -513,6 +524,10 @@ class IngestionPipeline:
         deleted_vectors = self.vector_store.delete_by_doc_id(old_doc_id)
         print(f"      [cleanup] FAISS 删除向量: {deleted_vectors} 条")
 
+        deleted_relation_vectors = self.relation_vector_store.delete_by_doc_id(old_doc_id)
+        if deleted_relation_vectors:
+            print(f"      [cleanup] 关系索引删除向量: {deleted_relation_vectors} 条")
+
         deleted_chunks = self.graph_store.delete_document_chunks(file_path)
         print(f"      [cleanup] Neo4j 删除 Chunk: {deleted_chunks} 个")
 
@@ -534,3 +549,4 @@ class IngestionPipeline:
         self.chunk_tracker.delete_by_doc(old_doc_id)
         self.status_store.delete(old_doc_id)
         self.graph_store.reset_document_entity_extracted(file_path)
+        self.relation_vector_store.save()

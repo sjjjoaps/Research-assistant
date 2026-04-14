@@ -36,10 +36,12 @@ def _build_pipeline(tmp_path: Path):
     pipeline.metadata_extractor = MagicMock()
     pipeline.database = MagicMock()
     pipeline.vector_store = MagicMock()
+    pipeline.relation_vector_store = MagicMock()
     pipeline.graph_store = MagicMock()
 
     # 默认 mock 返回值
     pipeline.vector_store.delete_by_doc_id.return_value = 2
+    pipeline.relation_vector_store.delete_by_doc_id.return_value = 1
     pipeline.graph_store.delete_document_chunks.return_value = 2
     pipeline.graph_store.delete_document_node.return_value = True
     pipeline.graph_store.delete_stale_relations.return_value = 0
@@ -74,6 +76,7 @@ class TestDeleteDocument:
         assert pipeline.chunk_tracker.get_chunk_ids(doc_id) == []
         assert result["doc_id"] == doc_id
         assert result["deleted_vectors"] == 2
+        assert result["deleted_relation_vectors"] == 1
         assert result["deleted_chunks"] == 2
 
     def test_delete_calls_faiss_and_neo4j(self, tmp_path):
@@ -92,6 +95,8 @@ class TestDeleteDocument:
 
         pipeline.vector_store.delete_by_doc_id.assert_called_once_with(doc_id)
         pipeline.vector_store.save.assert_called_once()
+        pipeline.relation_vector_store.delete_by_doc_id.assert_called_once_with(doc_id)
+        pipeline.relation_vector_store.save.assert_called_once()
         pipeline.graph_store.delete_document_chunks.assert_called_once_with("/tmp/paper2.pdf")
         pipeline.graph_store.delete_document_node.assert_called_once_with("/tmp/paper2.pdf")
         pipeline.graph_store.delete_stale_relations.assert_called_once()
@@ -235,6 +240,7 @@ class TestDeleteDocumentAPI:
             "doc_id": "abc123",
             "file_path": "/tmp/paper.pdf",
             "deleted_vectors": 3,
+            "deleted_relation_vectors": 1,
             "deleted_chunks": 3,
             "deleted_relations": 1,
             "deleted_entities": 2,
@@ -249,4 +255,3 @@ class TestDeleteDocumentAPI:
             assert resp.status_code == 200
             assert resp.json()["deleted_chunks"] == 3
             assert resp.json()["deleted_entities"] == 2
-

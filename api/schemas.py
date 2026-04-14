@@ -73,6 +73,7 @@ class DeleteDocumentResult(BaseModel):
     doc_id: str
     file_path: str
     deleted_vectors: int
+    deleted_relation_vectors: int = 0
     deleted_chunks: int
     deleted_relations: int
     deleted_entities: int

@@ -30,6 +30,12 @@
 - 规则失效时自动回退到 LLM 结构化抽取
 - `QAAgent`、`DeepResearchAgent`、`GraphRetriever` 已接入该提取器
 
+### 关系向量索引（Phase 4.2）
+- 新增 `src/storage/relation_vector_store.py`
+- 为每条关系构造 `source + relation_type + target + description` 检索文本
+- 与 chunk 向量索引独立保存，默认目录为 `data/relation_faiss`
+- 文档删除或增量重建时，关系索引会按 `doc_id` 同步清理
+
 ### 深度研究（Plan-Execute-Report）
 1. LLM 将研究问题拆解为 3~5 个子问题
 2. 对每个子问题独立检索 + 局部分析

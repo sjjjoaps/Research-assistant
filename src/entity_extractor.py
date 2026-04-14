@@ -26,6 +26,7 @@ from src.chunker import TextChunk
 from src.graph_store import GraphStore
 from src.ingestion.description_merger import DescriptionMerger
 from src.llm_client import get_llm
+from src.storage.relation_vector_store import RelationVectorRecord
 
 
 class EntityItem(BaseModel):
@@ -67,6 +68,7 @@ class EntityExtractionStats:
     created_relations: int = 0
     entity_ids: list[str] = field(default_factory=list)
     relation_keys: list[str] = field(default_factory=list)
+    relation_records: list[RelationVectorRecord] = field(default_factory=list)
 
 
 class EntityExtractor:
@@ -152,6 +154,19 @@ class EntityExtractor:
                     seen_relation_keys.add(rel_key)
                     if is_new:
                         stats.created_relations += 1
+                stats.relation_records.append(
+                    RelationVectorRecord(
+                        relation_key=rel_key,
+                        source_entity_id=source_id,
+                        source_name=relation.source_name,
+                        relation_type=relation.relation_type,
+                        target_entity_id=target_id,
+                        target_name=relation.target_name,
+                        description=relation.description or "",
+                        doc_id=str(chunk.metadata.get("doc_id", "")),
+                        file_path=file_path,
+                    )
+                )
 
         stats.entity_ids = list(seen_entity_ids)
         stats.relation_keys = list(seen_relation_keys)
