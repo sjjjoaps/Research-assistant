@@ -8,6 +8,7 @@ langchain_text_splitters==1.1.1
 neo4j==6.1.0
 networkx==3.4.2
 pdfplumber>=0.10.0
+pyvis>=0.3.2
 pydantic==2.12.5
 pydantic_settings==2.13.1
 python_docx==1.2.0

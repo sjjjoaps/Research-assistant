@@ -96,6 +96,45 @@ class DocumentCitationsResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 图谱可视化
+# ──────────────────────────────────────────────────────────────────────────────
+
+class GraphCountItem(BaseModel):
+    label: str | None = None
+    type: str | None = None
+    count: int
+
+
+class GraphStatsResponse(BaseModel):
+    node_count: int
+    relationship_count: int
+    node_labels: list[GraphCountItem]
+    relationship_types: list[GraphCountItem]
+
+
+class GraphNode(BaseModel):
+    id: str
+    label: str
+    type: str
+    labels: list[str] = Field(default_factory=list)
+    properties: dict = Field(default_factory=dict)
+
+
+class GraphEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    type: str
+    label: str
+    properties: dict = Field(default_factory=dict)
+
+
+class GraphSubgraphResponse(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 问答
 # ──────────────────────────────────────────────────────────────────────────────
 

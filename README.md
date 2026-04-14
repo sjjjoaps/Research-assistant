@@ -60,7 +60,13 @@
 
 ### 接口与前端
 - **FastAPI**：RESTful 接口，覆盖文献管理、问答、研究、Idea、社区检测
-- **Streamlit**：四页可视化前端，侧边栏导航，支持报告下载
+- **Streamlit**：可视化前端，侧边栏导航，支持报告下载与知识图谱查看
+
+### 知识图谱可视化（Phase 5.2）
+- 新增 `/graph/stats`，返回图谱节点和关系统计
+- 新增 `/graph/subgraph`，返回可视化子图数据
+- 新增 Streamlit「知识图谱」页面，支持节点类型过滤、搜索和节点详情查看
+- 可选使用 `pyvis` 渲染交互式图谱
 
 ---
 
@@ -161,6 +167,8 @@ F:/Anaconda/envs/llm_universe/python.exe research.py --question "..." --save-rep
 | POST | `/idea` | Idea 报告生成 |
 | POST | `/community/detect` | 触发社区检测 |
 | GET | `/community/list` | 社区摘要列表 |
+| GET | `/graph/stats` | 图谱统计 |
+| GET | `/graph/subgraph` | 图谱子图 |
 
 `/chat` 响应新增字段：
 - `ll_keywords`：当前问题抽取出的低层关键词

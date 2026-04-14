@@ -20,6 +20,10 @@ Phase 3.3 新增：
 - create_cites_relation      — 创建 Document -[:CITES]-> Reference 关系
 - get_document_citations     — 查询文档的所有引用
 - delete_document_citations  — 删除文档的所有 CITES 关系（Reference 节点保留）
+
+Phase 5.2 新增：
+- get_graph_stats            — 查询图谱节点/关系统计
+- get_subgraph               — 查询可视化子图数据
 """
 from __future__ import annotations
 
@@ -464,6 +468,158 @@ class GraphStore:
         with self.driver.session() as session:
             result = session.run(query, limit=limit)
             return [dict(record) for record in result]
+
+    # ------------------------------------------------------------------
+    # Phase 5.2 — 图谱可视化支持
+    # ------------------------------------------------------------------
+
+    def get_graph_stats(self) -> dict:
+        """返回图谱节点和关系统计。
+
+        Returns:
+            {
+                "node_count": int,
+                "relationship_count": int,
+                "node_labels": [{"label": str, "count": int}],
+                "relationship_types": [{"type": str, "count": int}],
+            }
+        """
+        with self.driver.session() as session:
+            node_count = session.run("MATCH (n) RETURN count(n) AS count").single()["count"]
+            relationship_count = session.run("MATCH ()-[r]->() RETURN count(r) AS count").single()["count"]
+            node_labels = [
+                {"label": row["label"], "count": row["count"]}
+                for row in session.run(
+                    """
+                    MATCH (n)
+                    UNWIND labels(n) AS label
+                    RETURN label, count(*) AS count
+                    ORDER BY count DESC, label
+                    """
+                )
+            ]
+            relationship_types = [
+                {"type": row["type"], "count": row["count"]}
+                for row in session.run(
+                    """
+                    MATCH ()-[r]->()
+                    RETURN type(r) AS type, count(*) AS count
+                    ORDER BY count DESC, type
+                    """
+                )
+            ]
+
+        return {
+            "node_count": int(node_count),
+            "relationship_count": int(relationship_count),
+            "node_labels": node_labels,
+            "relationship_types": relationship_types,
+        }
+
+    def get_subgraph(
+        self,
+        limit: int = 100,
+        node_types: list[str] | None = None,
+        search: str | None = None,
+    ) -> dict:
+        """查询可视化子图。
+
+        Args:
+            limit: 最大节点数。
+            node_types: 可选节点 label 过滤，如 ["Document", "Entity"]。
+            search: 可选搜索词，匹配节点 name/title/id/file_path。
+
+        Returns:
+            {"nodes": [...], "edges": [...]}。
+        """
+        limit = max(1, min(int(limit), 500))
+        node_types = [item for item in (node_types or []) if item]
+        search_text = (search or "").strip().lower()
+
+        query = """
+        MATCH (n)
+        WHERE ($node_types = [] OR any(label IN labels(n) WHERE label IN $node_types))
+          AND (
+            $search = ''
+            OR toLower(coalesce(n.name, '')) CONTAINS $search
+            OR toLower(coalesce(n.title, '')) CONTAINS $search
+            OR toLower(coalesce(n.id, '')) CONTAINS $search
+            OR toLower(coalesce(n.file_path, '')) CONTAINS $search
+          )
+        WITH n
+        ORDER BY
+          CASE
+            WHEN 'Document' IN labels(n) THEN 0
+            WHEN 'Entity' IN labels(n) THEN 1
+            WHEN 'Community' IN labels(n) THEN 2
+            WHEN 'Reference' IN labels(n) THEN 3
+            ELSE 4
+          END,
+          coalesce(n.name, n.title, n.id, n.file_path, '')
+        LIMIT $limit
+        WITH collect(n) AS nodes
+        UNWIND nodes AS n
+        OPTIONAL MATCH (n)-[r]-(m)
+        WHERE m IN nodes
+        RETURN nodes, collect(DISTINCT {
+            id: elementId(r),
+            source: elementId(startNode(r)),
+            target: elementId(endNode(r)),
+            type: type(r),
+            properties: properties(r)
+        }) AS edges
+        """
+        with self.driver.session() as session:
+            record = session.run(
+                query,
+                limit=limit,
+                node_types=node_types,
+                search=search_text,
+            ).single()
+
+        if record is None:
+            return {"nodes": [], "edges": []}
+
+        nodes = [self._format_visual_node(node) for node in record["nodes"]]
+        edges = []
+        seen_edges: set[str] = set()
+        for edge in record["edges"]:
+            edge_id = edge.get("id")
+            if not edge_id or edge_id in seen_edges:
+                continue
+            seen_edges.add(edge_id)
+            edges.append(
+                {
+                    "id": edge_id,
+                    "source": edge.get("source"),
+                    "target": edge.get("target"),
+                    "type": edge.get("type"),
+                    "label": edge.get("type"),
+                    "properties": dict(edge.get("properties") or {}),
+                }
+            )
+
+        return {"nodes": nodes, "edges": edges}
+
+    @staticmethod
+    def _format_visual_node(node) -> dict:
+        labels = list(node.labels)
+        properties = dict(node)
+        primary_type = labels[0] if labels else "Node"
+        label = (
+            properties.get("name")
+            or properties.get("title")
+            or properties.get("id")
+            or properties.get("file_path")
+            or primary_type
+        )
+        return {
+            "id": node.element_id,
+            "label": str(label),
+            "type": primary_type,
+            "labels": labels,
+            "properties": properties,
+        }
 
     # ------------------------------------------------------------------
     # Phase 2.3 — 增量更新 / 精确删除支持
