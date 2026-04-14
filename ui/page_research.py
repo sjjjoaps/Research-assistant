@@ -19,7 +19,7 @@ def render(api_base: str) -> None:
         thread_id = st.text_input("会话 ID", value="research-default", key="res_thread_id")
         retriever_mode = st.selectbox(
             "检索模式",
-            ["hybrid", "semantic", "graph"],
+            ["mix", "local", "global", "hybrid", "semantic", "graph"],
             key="res_retriever_mode",
         )
         top_k = st.slider("每子问题检索 chunk 数", 1, 10, 5, key="res_top_k")

@@ -1,1 +1,1 @@
-# src/retrieval — 新检索模块
+"""src/retrieval — 新检索模块"""

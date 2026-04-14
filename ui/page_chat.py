@@ -18,7 +18,7 @@ def render(api_base: str) -> None:
         top_k = st.slider("检索 chunk 数 (top_k)", 1, 10, 3, key="chat_top_k")
         retriever_mode = st.selectbox(
             "检索模式",
-            ["hybrid", "semantic", "graph"],
+            ["mix", "local", "global", "hybrid", "semantic", "graph"],
             key="chat_retriever_mode",
         )
         max_history = st.slider("携带历史轮数", 1, 10, 5, key="chat_max_history")

@@ -104,7 +104,7 @@ class ChatRequest(BaseModel):
     thread_id: str = Field(default="default", description="会话 ID")
     top_k: int = Field(default=3, ge=1, le=20, description="检索 chunk 数量")
     max_history: int = Field(default=5, ge=1, le=20, description="保留历史轮数")
-    retriever_mode: Literal["semantic", "hybrid", "graph"] = Field(
+    retriever_mode: Literal["semantic", "hybrid", "graph", "local", "global", "mix"] = Field(
         default="hybrid", description="检索模式"
     )
 
@@ -128,7 +128,7 @@ class ResearchRequest(BaseModel):
     thread_id: str = Field(default="research", description="会话 ID")
     top_k: int = Field(default=5, ge=1, le=20, description="每个子问题检索 chunk 数量")
     max_subquestions: int = Field(default=4, ge=2, le=5, description="子问题上限")
-    retriever_mode: Literal["semantic", "hybrid", "graph"] = Field(
+    retriever_mode: Literal["semantic", "hybrid", "graph", "local", "global", "mix"] = Field(
         default="hybrid", description="检索模式"
     )
     use_community: bool = Field(default=False, description="是否附加社区视角")

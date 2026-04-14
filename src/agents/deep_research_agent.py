@@ -29,7 +29,7 @@ from src.token_tracker import TokenUsage
 
 logger = logging.getLogger(__name__)
 
-RetrieverMode = Literal["semantic", "hybrid", "graph"]
+RetrieverMode = Literal["semantic", "hybrid", "graph", "local", "global", "mix"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -110,6 +110,15 @@ def _make_retriever(mode: RetrieverMode, top_k: int):
     if mode == "graph":
         from src.graph_retriever import GraphRetriever
         return GraphRetriever(top_k=top_k, expand_entities=True)
+    if mode == "local":
+        from src.retrieval.local_retriever import LocalRetriever
+        return LocalRetriever(top_k=top_k)
+    if mode == "global":
+        from src.retrieval.global_retriever import GlobalRetriever
+        return GlobalRetriever(top_k=top_k)
+    if mode == "mix":
+        from src.retrieval.mix_retriever import MixRetriever
+        return MixRetriever(top_k=top_k)
     from src.retriever import SemanticRetriever
     return SemanticRetriever(top_k=top_k)
 
@@ -145,7 +154,7 @@ class DeepResearchAgent(BaseAgent):
     max_subquestions : int
         子问题上限（LLM 生成时的约束）
     retriever_mode : RetrieverMode
-        检索模式：semantic / hybrid / graph
+        检索模式：semantic / hybrid / graph / local / global / mix
     use_community : bool
         是否附加社区摘要视角（需要先运行 CommunityDetector）
     """

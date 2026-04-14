@@ -2,10 +2,13 @@
 QAAgent
 基于 BaseAgent 的具体实现：多轮上下文 + 可选检索模式 + RAG 回答
 
-支持三种检索模式（通过 retriever_mode 参数切换）：
+支持多种检索模式（通过 retriever_mode 参数切换）：
   - "semantic"  ：仅 FAISS 向量检索（默认）
   - "hybrid"    ：FAISS + BM25 融合检索（RRF）
   - "graph"     ：基于 Neo4j 实体匹配的图检索
+  - "local"     ：图检索 + 语义检索，适合具体问题
+  - "global"    ：关系索引 + 图关系，适合宏观问题
+  - "mix"       ：semantic + local + global 综合融合
 
 Phase 4.1 变更：
 - 引入 KeywordExtractor，run_turn 返回值新增 ll_keywords / hl_keywords
@@ -22,7 +25,7 @@ from src.retriever import RetrievedChunk, SemanticRetriever
 from src.retrieval.keyword_extractor import KeywordExtractor
 from src.token_tracker import TokenUsage
 
-RetrieverMode = Literal["semantic", "hybrid", "graph"]
+RetrieverMode = Literal["semantic", "hybrid", "graph", "local", "global", "mix"]
 
 
 def _load_prompt(filename: str) -> str:
@@ -45,6 +48,15 @@ def _make_retriever(mode: RetrieverMode, top_k: int):
     if mode == "graph":
         from src.graph_retriever import GraphRetriever
         return GraphRetriever(top_k=top_k, expand_entities=True)
+    if mode == "local":
+        from src.retrieval.local_retriever import LocalRetriever
+        return LocalRetriever(top_k=top_k)
+    if mode == "global":
+        from src.retrieval.global_retriever import GlobalRetriever
+        return GlobalRetriever(top_k=top_k)
+    if mode == "mix":
+        from src.retrieval.mix_retriever import MixRetriever
+        return MixRetriever(top_k=top_k)
     # 默认 semantic
     return SemanticRetriever(top_k=top_k)
 
@@ -60,7 +72,7 @@ class QAAgent(BaseAgent):
     max_history_turns : int
         携带到 prompt 的最大历史轮数
     retriever_mode : RetrieverMode
-        检索模式："semantic" / "hybrid" / "graph"
+        检索模式："semantic" / "hybrid" / "graph" / "local" / "global" / "mix"
     """
 
     def __init__(

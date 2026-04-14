@@ -36,6 +36,12 @@
 - 与 chunk 向量索引独立保存，默认目录为 `data/relation_faiss`
 - 文档删除或增量重建时，关系索引会按 `doc_id` 同步清理
 
+### Local / Global / Mix 检索（Phase 4.3）
+- `local`：融合图检索和语义检索，适合实体、方法、数据集等具体问题
+- `global`：优先走关系向量索引和图关系，适合趋势、主题、方向等宏观问题
+- `mix`：综合 `semantic + local + global` 三路结果做统一融合
+- 前端、CLI、API 已全部支持这三种新模式
+
 ### 深度研究（Plan-Execute-Report）
 1. LLM 将研究问题拆解为 3~5 个子问题
 2. 对每个子问题独立检索 + 局部分析
