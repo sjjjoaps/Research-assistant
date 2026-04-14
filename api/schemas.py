@@ -32,6 +32,12 @@ class DocumentItem(BaseModel):
     abstract: str | None
     keywords: str
     status: str | None = None          # 来自 DocumentStatusStore
+    current_step: str | None = None
+    chunk_count: int = 0
+    entity_count: int = 0
+    relation_count: int = 0
+    error_message: str | None = None
+    updated_at: str | None = None
 
 
 class DocumentStatusResponse(BaseModel):
@@ -67,6 +73,15 @@ class IngestFileResult(BaseModel):
     entity_count: int = 0
     relation_count: int = 0
     citation_count: int = 0
+
+
+class IngestStartResponse(BaseModel):
+    file_path: str
+    doc_id: str
+    accepted: bool = True
+    status: str
+    current_step: str
+    message: str
 
 
 class DeleteDocumentResult(BaseModel):
