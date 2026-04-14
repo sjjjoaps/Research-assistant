@@ -22,6 +22,13 @@
 ### 多轮问答
 - 原生 Agent 架构，按 `thread_id` 管理多轮上下文
 - 每轮回答附带来源引用与 token 用量统计
+- 问答接口额外返回 `ll_keywords` / `hl_keywords`，便于观察当前查询的实体词与主题词
+
+### 查询关键词提取（Phase 4.1）
+- 新增 `src/retrieval/keyword_extractor.py`
+- 规则优先提取低层关键词（实体、模型、数据集、方法名）和高层关键词（趋势、主题、方向）
+- 规则失效时自动回退到 LLM 结构化抽取
+- `QAAgent`、`DeepResearchAgent`、`GraphRetriever` 已接入该提取器
 
 ### 深度研究（Plan-Execute-Report）
 1. LLM 将研究问题拆解为 3~5 个子问题
@@ -138,6 +145,10 @@ F:/Anaconda/envs/llm_universe/python.exe research.py --question "..." --save-rep
 | POST | `/community/detect` | 触发社区检测 |
 | GET | `/community/list` | 社区摘要列表 |
 
+`/chat` 响应新增字段：
+- `ll_keywords`：当前问题抽取出的低层关键词
+- `hl_keywords`：当前问题抽取出的高层关键词
+
 ---
 
 ## 目录结构
@@ -200,7 +211,8 @@ GraphAssistant/
 │   ├── test_hybrid_search.py   # 四种检索模式对比
 │   ├── test_community.py       # 社区检测测试
 │   ├── test_research.py        # 深度研究端到端测试
-│   └── test_api.py             # FastAPI 接口验证
+│   ├── test_api.py             # FastAPI 接口验证
+│   └── test_keyword_extractor.py  # Phase 4.1 关键词提取测试
 │
 ├── data/                       # 本地数据（gitignore）
 │   ├── faiss/                  # FAISS 索引文件

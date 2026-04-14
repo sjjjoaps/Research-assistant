@@ -55,4 +55,6 @@ def chat(req: ChatRequest):
         thread_id=result["thread_id"],
         retriever_mode=result["retriever_mode"],
         token_usage=token_dict,
+        ll_keywords=result.get("ll_keywords", []),
+        hl_keywords=result.get("hl_keywords", []),
     )

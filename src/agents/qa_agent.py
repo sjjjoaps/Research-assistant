@@ -6,6 +6,9 @@ QAAgent
   - "semantic"  ：仅 FAISS 向量检索（默认）
   - "hybrid"    ：FAISS + BM25 融合检索（RRF）
   - "graph"     ：基于 Neo4j 实体匹配的图检索
+
+Phase 4.1 变更：
+- 引入 KeywordExtractor，run_turn 返回值新增 ll_keywords / hl_keywords
 """
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from src.agents.base_agent import BaseAgent, Turn
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk, SemanticRetriever
+from src.retrieval.keyword_extractor import KeywordExtractor
 from src.token_tracker import TokenUsage
 
 RetrieverMode = Literal["semantic", "hybrid", "graph"]
@@ -71,6 +75,7 @@ class QAAgent(BaseAgent):
         self.retriever = _make_retriever(retriever_mode, top_k)
         self.llm = get_llm(temperature=0.1)
         self.chain = _QA_AGENT_PROMPT | self.llm
+        self._keyword_extractor = KeywordExtractor()
 
     @staticmethod
     def _build_context(chunks: list[RetrievedChunk]) -> tuple[str, list[str]]:
@@ -102,8 +107,9 @@ class QAAgent(BaseAgent):
         self.append_user_message(thread_id, user_input)
 
         history = self.get_history(thread_id)
-        history_text = self._build_history_text(history[:-1])  # 不把当前 user_input 重复写入 history
+        history_text = self._build_history_text(history[:-1])
 
+        kw = self._keyword_extractor.extract(user_input)
         chunks = self.retriever.retrieve(user_input)
         context, sources = self._build_context(chunks)
 
@@ -116,6 +122,8 @@ class QAAgent(BaseAgent):
                 "thread_id": thread_id,
                 "retriever_mode": self.retriever_mode,
                 "token_usage": None,
+                "ll_keywords": kw.ll_keywords,
+                "hl_keywords": kw.hl_keywords,
             }
 
         message = self.chain.invoke(
@@ -136,4 +144,6 @@ class QAAgent(BaseAgent):
             "thread_id": thread_id,
             "retriever_mode": self.retriever_mode,
             "token_usage": token_usage,
+            "ll_keywords": kw.ll_keywords,
+            "hl_keywords": kw.hl_keywords,
         }

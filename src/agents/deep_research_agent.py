@@ -8,9 +8,13 @@ Deep Research Agent
   Step3 Analyze   → 对每个子问题生成证据约束结论
   Step4 Community → 若 use_community=True，附加社区摘要视角
   Step5 Report    → 汇总生成完整 Markdown 研究报告
+
+Phase 4.1 变更：
+- 引入 KeywordExtractor，对每个子问题提取关键词并以 debug 日志记录
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -20,7 +24,10 @@ from pydantic import BaseModel, Field
 from src.agents.base_agent import BaseAgent
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk
+from src.retrieval.keyword_extractor import KeywordExtractor
 from src.token_tracker import TokenUsage
+
+logger = logging.getLogger(__name__)
 
 RetrieverMode = Literal["semantic", "hybrid", "graph"]
 
@@ -162,6 +169,7 @@ class DeepResearchAgent(BaseAgent):
         # 普通文本链
         self._analyze_chain = _ANALYZE_PROMPT | self.llm
         self._report_chain = _REPORT_PROMPT | self.llm
+        self._keyword_extractor = KeywordExtractor()
 
     # ── Step 1：规划 ──────────────────────────────────────────────────────────
 
@@ -174,6 +182,11 @@ class DeepResearchAgent(BaseAgent):
     # ── Step 2+3：检索 + 局部分析 ─────────────────────────────────────────────
 
     def _retrieve_and_analyze(self, sub_question: str) -> SubQuestionResult:
+        kw = self._keyword_extractor.extract(sub_question)
+        logger.debug(
+            "子问题关键词 — ll: %s, hl: %s | 问题: %s",
+            kw.ll_keywords, kw.hl_keywords, sub_question,
+        )
         chunks = self.retriever.retrieve(sub_question)
         context, sources = _build_context(chunks)
 

@@ -4,13 +4,18 @@
 收集 1-hop 邻居 Entity 的描述，拼装成 RetrievedChunk 返回。
 
 检索流程：
-  query → 关键词切分 → 匹配 Entity.name → 找到关联 Chunk
+  query → KeywordExtractor 提取 ll+hl 关键词 → 匹配 Entity.name → 找到关联 Chunk
         → 扩展 1-hop 邻居 Entity → 构建增强上下文
+
+Phase 4.1 变更：
+- 引入 KeywordExtractor 替换朴素切词，优先使用 ll_keywords，兜底 hl_keywords
+- _extract_keywords 由静态方法改为实例方法
 """
 import re
 
 from src.config import settings
 from src.retriever import RetrievedChunk
+from src.retrieval.keyword_extractor import KeywordExtractor
 
 from neo4j import GraphDatabase
 
@@ -34,6 +39,7 @@ class GraphRetriever:
             settings.neo4j_uri,
             auth=(settings.neo4j_username, settings.neo4j_password),
         )
+        self._keyword_extractor = KeywordExtractor()
 
     def close(self) -> None:
         self._driver.close()
@@ -42,11 +48,19 @@ class GraphRetriever:
     # 内部工具
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _extract_keywords(text: str) -> list[str]:
-        """将查询文本切词，过滤短词（<=1字符）"""
-        tokens = [t.strip() for t in re.split(r"[\s,，。！？!?、\-/()（）]+", text) if t.strip()]
-        return [t for t in tokens if len(t) > 1]
+    def _extract_keywords(self, text: str) -> list[str]:
+        """使用 KeywordExtractor 提取查询关键词，兜底朴素切词。
+
+        优先使用 ll_keywords（实体/方法名），再追加 hl_keywords（主题词）。
+        若两者均为空则退化为原有朴素切词，保证鲁棒性。
+        """
+        result = self._keyword_extractor.extract(text)
+        keywords = result.ll_keywords + result.hl_keywords
+        if not keywords:
+            # 兜底：原有朴素切词
+            tokens = [t.strip() for t in re.split(r"[\s,，。！？!?、\-/()（）]+", text) if t.strip()]
+            keywords = [t for t in tokens if len(t) > 1]
+        return keywords
 
     def _find_matching_chunks(self, keywords: list[str]) -> list[dict]:
         """

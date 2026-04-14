@@ -114,6 +114,8 @@ class ChatResponse(BaseModel):
     thread_id: str
     retriever_mode: str
     token_usage: dict | None
+    ll_keywords: list[str] = Field(default_factory=list)
+    hl_keywords: list[str] = Field(default_factory=list)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
