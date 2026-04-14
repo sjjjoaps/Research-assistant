@@ -14,11 +14,10 @@ Phase 2.4 变更：
 - 新增 delete_document(doc_id)：精确删除，只清理该文档独占数据，共享实体/关系保留
 - 删除流程引入 deleting / delete_failed 状态机
 
-Phase 2.5 变更：
-- 新增 ingest_files_concurrent()：ThreadPoolExecutor(max_workers) 控制并发入库
-- VectorStore 内置 threading.Lock，彻底消除 FAISS 并发写入风险
-- GraphStore 已在 upsert_entity/relation_with_merge 中加入细粒度锁，此处无需额外同步
-- ingest_files_concurrent 内置 per-doc_id claim 锁，防止同内容文件被并发重复处理
+Phase 3.1 变更：
+- IngestionPipeline 新增 enable_modal_extraction 参数，透传给 DocumentParser
+- 启用后 PDF 解析阶段会提取图片/表格并生成 LLM 描述，作为特殊 chunk 入库
+- 多模态 chunk 的 metadata["content_type"] 为 "image" 或 "table"，可区分类型
 """
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -50,14 +49,18 @@ class BatchIngestResult:
 
 
 class IngestionPipeline:
-    def __init__(self, enable_entity_extraction: bool | None = None) -> None:
+    def __init__(
+        self,
+        enable_entity_extraction: bool | None = None,
+        enable_modal_extraction: bool = False,
+    ) -> None:
         self._enable_entity_extraction = (
             enable_entity_extraction
             if enable_entity_extraction is not None
             else settings.enable_entity_extraction
         )
 
-        self.document_parser = DocumentParser()
+        self.document_parser = DocumentParser(enable_modal_extraction=enable_modal_extraction)
         self.chunker = DocumentChunker()
         self.metadata_extractor = MetadataExtractor()
         self.database = MetadataDatabase()
@@ -136,7 +139,9 @@ class IngestionPipeline:
             self.status_store.upsert(status)
             print(f"[2/{total_steps}] 开始切块")
             chunks = self.chunker.chunk(parsed_document, doc_id=doc_id)
-            print(f"      切块完成，共 {len(chunks)} 个 chunk")
+            modal_count = sum(1 for c in chunks if c.metadata.get("content_type") in ("image", "table"))
+            text_count = len(chunks) - modal_count
+            print(f"      切块完成，共 {len(chunks)} 个 chunk（文本 {text_count}，多模态 {modal_count}）")
 
             # 注册 chunk 到 ChunkTracker
             content_hashes = [compute_chunk_content_hash(c.content) for c in chunks]

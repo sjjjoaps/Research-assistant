@@ -101,7 +101,10 @@ class GraphStore:
         MERGE (c:Chunk {id: $chunk_id})
         SET c.content = $content,
             c.chunk_index = $chunk_index,
-            c.file_path = $file_path
+            c.file_path = $file_path,
+            c.content_type = $content_type,
+            c.page_number = $page_number,
+            c.position_hint = $position_hint
         """
         with self.driver.session() as session:
             session.run(
@@ -110,6 +113,9 @@ class GraphStore:
                 content=chunk.content,
                 chunk_index=chunk.chunk_index,
                 file_path=chunk.metadata.get("file_path"),
+                content_type=chunk.metadata.get("content_type", "text"),
+                page_number=chunk.metadata.get("page_number"),
+                position_hint=chunk.metadata.get("position_hint"),
             )
 
     def create_has_chunk_relation(self, file_path: str, chunk_id: str) -> None:

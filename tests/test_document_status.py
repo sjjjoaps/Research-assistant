@@ -170,7 +170,13 @@ class TestIngestionPipelineStatus(unittest.TestCase):
             pipeline = self._make_pipeline(tmp)
             try:
                 pipeline.document_parser.parse.return_value = MagicMock()
-                pipeline.chunker.chunk.return_value = [MagicMock(), MagicMock()]
+                mock_chunk_a = MagicMock()
+                mock_chunk_a.content = "chunk content a"
+                mock_chunk_a.metadata = {"content_type": "text"}
+                mock_chunk_b = MagicMock()
+                mock_chunk_b.content = "chunk content b"
+                mock_chunk_b.metadata = {"content_type": "text"}
+                pipeline.chunker.chunk.return_value = [mock_chunk_a, mock_chunk_b]
                 mock_meta = MagicMock()
                 mock_meta.title = "Test Paper"
                 mock_meta.authors = ["Author A"]
