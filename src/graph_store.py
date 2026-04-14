@@ -104,7 +104,9 @@ class GraphStore:
             c.file_path = $file_path,
             c.content_type = $content_type,
             c.page_number = $page_number,
-            c.position_hint = $position_hint
+            c.position_hint = $position_hint,
+            c.section_type = $section_type,
+            c.section_title = $section_title
         """
         with self.driver.session() as session:
             session.run(
@@ -116,6 +118,8 @@ class GraphStore:
                 content_type=chunk.metadata.get("content_type", "text"),
                 page_number=chunk.metadata.get("page_number"),
                 position_hint=chunk.metadata.get("position_hint"),
+                section_type=chunk.metadata.get("section_type", "unknown"),
+                section_title=chunk.metadata.get("section_title", ""),
             )
 
     def create_has_chunk_relation(self, file_path: str, chunk_id: str) -> None:

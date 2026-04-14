@@ -7,6 +7,11 @@ Phase 3.1 变更：
 - ParsedDocument 新增 modal_contents 字段，存储从 PDF 提取的图片/表格内容
 - DocumentParser 新增 enable_modal_extraction 开关（默认 False，避免影响现有流程）
 - PDF 解析时可选调用 extract_modal_contents_from_pdf 提取多模态内容
+
+Phase 3.2 变更：
+- ParsedDocument 新增 page_sections / page_section_titles 字段（与 pages 平行）
+- DocumentParser 新增 enable_section_recognition 开关（默认 False）
+- PDF 解析时可选调用 SectionRecognizer 识别每页章节类型
 """
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,18 +33,28 @@ class ParsedDocument:
     raw_text: str
     pages: list[str]
     modal_contents: list["ModalContent"] = field(default_factory=list)
+    page_sections: list[str] = field(default_factory=list)        # 与 pages 平行，每页的 section_type
+    page_section_titles: list[str] = field(default_factory=list)  # 与 pages 平行，每页的章节标题
 
 
 class DocumentParser:
-    def __init__(self, enable_modal_extraction: bool = False) -> None:
+    def __init__(
+        self,
+        enable_modal_extraction: bool = False,
+        enable_section_recognition: bool = False,
+    ) -> None:
         """初始化文档解析器。
 
         Args:
             enable_modal_extraction: 是否启用多模态内容提取（图片/表格）。
                 默认 False，仅对 PDF 生效。启用后会调用 LLM 生成描述，
                 会增加入库耗时。
+            enable_section_recognition: 是否启用章节结构识别。
+                默认 False，仅对 PDF 生效。启用后会识别每页所属章节类型，
+                并写入 page_sections / page_section_titles 字段。
         """
         self.enable_modal_extraction = enable_modal_extraction
+        self.enable_section_recognition = enable_section_recognition
 
     def parse(self, file_path: str | Path) -> ParsedDocument:
         path = Path(file_path)
@@ -73,11 +88,20 @@ class DocumentParser:
             from src.ingestion.modal_processors import extract_modal_contents_from_pdf
             modal_contents = extract_modal_contents_from_pdf(str(path))
 
+        page_sections: list[str] = []
+        page_section_titles: list[str] = []
+        if self.enable_section_recognition and pages:
+            from src.ingestion.section_recognizer import SectionRecognizer
+            recognizer = SectionRecognizer()
+            page_sections, page_section_titles = recognizer.recognize_per_page(pages)
+
         return ParsedDocument(
             file_path=str(path),
             raw_text=raw_text,
             pages=pages,
             modal_contents=modal_contents,
+            page_sections=page_sections,
+            page_section_titles=page_section_titles,
         )
 
     def _parse_docx(self, path: Path) -> ParsedDocument:

@@ -18,6 +18,11 @@ Phase 3.1 变更：
 - IngestionPipeline 新增 enable_modal_extraction 参数，透传给 DocumentParser
 - 启用后 PDF 解析阶段会提取图片/表格并生成 LLM 描述，作为特殊 chunk 入库
 - 多模态 chunk 的 metadata["content_type"] 为 "image" 或 "table"，可区分类型
+
+Phase 3.2 变更：
+- IngestionPipeline 新增 enable_section_recognition 参数，透传给 DocumentParser
+- 启用后 PDF 解析阶段会识别每页章节类型，写入 chunk metadata["section_type"]
+- 支持检索时按 section_type 过滤（如只检索 method / experiment 章节）
 """
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -53,6 +58,7 @@ class IngestionPipeline:
         self,
         enable_entity_extraction: bool | None = None,
         enable_modal_extraction: bool = False,
+        enable_section_recognition: bool = False,
     ) -> None:
         self._enable_entity_extraction = (
             enable_entity_extraction
@@ -60,7 +66,10 @@ class IngestionPipeline:
             else settings.enable_entity_extraction
         )
 
-        self.document_parser = DocumentParser(enable_modal_extraction=enable_modal_extraction)
+        self.document_parser = DocumentParser(
+            enable_modal_extraction=enable_modal_extraction,
+            enable_section_recognition=enable_section_recognition,
+        )
         self.chunker = DocumentChunker()
         self.metadata_extractor = MetadataExtractor()
         self.database = MetadataDatabase()

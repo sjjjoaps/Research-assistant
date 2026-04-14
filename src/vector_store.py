@@ -12,6 +12,9 @@ Phase 2.4 变更：
 Phase 2.5 变更：
 - 新增内置 threading.Lock，add_chunks / save / delete_by_doc_id 均在锁内执行
   保证多线程并发入库时 FAISS 索引不被并发修改（FAISS 本身不是线程安全的）
+
+Phase 3.2 变更：
+- similarity_search 新增可选 section_type 参数，支持按章节类型过滤检索结果
 """
 import threading
 from pathlib import Path
@@ -75,10 +78,32 @@ class VectorStore:
 
             return deleted
 
-    def similarity_search(self, query: str, k: int = 3) -> list[Document]:
+    def similarity_search(
+        self,
+        query: str,
+        k: int = 3,
+        section_type: str | None = None,
+    ) -> list[Document]:
+        """语义相似度检索。
+
+        Args:
+            query: 查询文本。
+            k: 返回结果数量。
+            section_type: 可选，按章节类型过滤（如 "method"、"experiment"）。
+                若指定，先召回 k * 5 个候选，再按 section_type 过滤后取前 k 个。
+                过滤后不足 k 个时返回实际数量。
+
+        Returns:
+            匹配的 Document 列表。
+        """
         if self._store is None:
             return []
-        return self._store.similarity_search(query, k=k)
+        if section_type is None:
+            return self._store.similarity_search(query, k=k)
+        # 过滤模式：多召回候选，再按 section_type 筛选
+        candidates = self._store.similarity_search(query, k=k * 5)
+        filtered = [d for d in candidates if d.metadata.get("section_type") == section_type]
+        return filtered[:k]
 
     def get_all_documents(self) -> list[Document]:
         with self._lock:
