@@ -9,21 +9,25 @@ import uvicorn
 from fastapi import FastAPI
 
 from api.routers import chat, community, documents, graph, research
+from api.routers import agent as agent_router_module   # Phase 8-6: MasterAgent SSE
 from api.schemas import HealthResponse
 from src.config import settings
 
 app = FastAPI(
     title="学术文献知识库助手 API",
-    description="GraphAssistant — 文献入库、问答、深度研究、Idea 生成",
-    version="1.0.0",
+    description="GraphAssistant — 文献入库、问答、深度研究、Idea 生成、MasterAgent 流式对话",
+    version="1.1.0",
 )
 
-# 注册路由
+# 注册路由（旧 Router 保留，Phase 8 兼容层）
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(research.router)
 app.include_router(community.router)
 app.include_router(graph.router)
+
+# Phase 8-6：MasterAgent SSE 流式路由（/agent/*）
+app.include_router(agent_router_module.router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["health"])

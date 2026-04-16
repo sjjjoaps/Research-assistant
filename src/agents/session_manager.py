@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -130,15 +131,35 @@ class SessionManager:
     COMPACT_TOKEN_THRESHOLD: int = 8000   # 超过此 token 数触发压缩
     KEEP_RECENT_TURNS: int       = 3      # 压缩时保留最近 N 轮原始记录
 
+    # [Fix-1] session_id 安全校验正则（与 api/routers/agent.py 保持一致）
+    _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
     def __init__(self) -> None:
         self.SESSION_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ── session_id 防御校验 ────────────────────────────────────────────────────
+
+    def _assert_safe_session_id(self, session_id: str) -> None:
+        """
+        [Fix-1] 防御式校验 session_id，防止路径穿越攻击。
+
+        SessionManager 是内部基础设施，路由层已做校验；
+        此处作为第二道防线，保证即使上层遗漏也不会写出目录外文件。
+        抛出 ValueError（由调用方决定是否向上传播）。
+        """
+        if not self._SESSION_ID_RE.match(session_id):
+            raise ValueError(
+                f"session_id 格式非法（路径穿越防护）：{session_id!r}"
+            )
 
     # ── 路径工具 ──────────────────────────────────────────────────────────────
 
     def _jsonl_path(self, session_id: str) -> Path:
+        self._assert_safe_session_id(session_id)   # [Fix-1]
         return self.SESSION_DIR / f"{session_id}.jsonl"
 
     def _meta_path(self, session_id: str) -> Path:
+        self._assert_safe_session_id(session_id)   # [Fix-1]
         return self.SESSION_DIR / f"{session_id}.meta.json"
 
     # ── 元数据操作 ────────────────────────────────────────────────────────────

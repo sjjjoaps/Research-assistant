@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 class HealthResponse(BaseModel):
     status: str = "ok"
-    version: str = "1.0.0"
+    version: str = "1.1.0"   # [Fix-3] 与 main.py FastAPI(version="1.1.0") 保持同步
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -213,3 +213,26 @@ class IdeaResponse(BaseModel):
     evidence_basis: str
     confidence_note: str
     markdown: str
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MasterAgent 流式对话（Phase 8-6）
+# ──────────────────────────────────────────────────────────────────────────────
+
+class AgentChatRequest(BaseModel):
+    """POST /agent/chat 请求体。"""
+    user_input: str = Field(..., description="用户输入文本")
+    session_id: str = Field(
+        default="",
+        description="会话 ID；为空时由服务端自动生成新会话",
+    )
+
+
+class SessionMeta(BaseModel):
+    """会话列表中的单条元数据（GET /agent/sessions 响应元素）。"""
+    session_id: str = Field(..., description="会话唯一标识")
+    title: str = Field(..., description="会话标题（取第一轮用户输入前 30 字）")
+    created_at: str = Field(..., description="会话创建时间（ISO 8601）")
+    updated_at: str = Field(..., description="最近更新时间（ISO 8601）")
+    turn_count: int = Field(default=0, description="已完成的对话轮数")
+    total_tokens: int = Field(default=0, description="累计 token 用量")
