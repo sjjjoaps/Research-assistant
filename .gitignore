@@ -1,3 +1,4 @@
+.gitignore
 data/
 CLAUDE.md
 .env
@@ -5,3 +6,6 @@ CLAUDE.md
 doc/
 reference_project/
 AGENTS.md
+__pycache__/
+.claude/settings.local.json
+.claude/sessions/
