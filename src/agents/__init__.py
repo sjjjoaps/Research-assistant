@@ -13,8 +13,10 @@ from src.agents.events import (
     ErrorEvent,
     EventType,
 )
+from src.agents.session_manager import SessionManager
 
 __all__ = [
+    # SSE 事件
     "BaseEvent",
     "SessionStartEvent",
     "ThinkingEvent",
@@ -26,4 +28,6 @@ __all__ = [
     "DoneEvent",
     "ErrorEvent",
     "EventType",
+    # 会话管理
+    "SessionManager",
 ]
