@@ -14,6 +14,7 @@ from src.agents.events import (
     EventType,
 )
 from src.agents.session_manager import SessionManager
+from src.agents.tool_registry import build_tool_registry, TOOL_DISPLAY_NAMES
 
 __all__ = [
     # SSE 事件
@@ -30,4 +31,7 @@ __all__ = [
     "EventType",
     # 会话管理
     "SessionManager",
+    # 工具注册
+    "build_tool_registry",
+    "TOOL_DISPLAY_NAMES",
 ]
