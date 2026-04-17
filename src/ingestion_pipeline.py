@@ -28,6 +28,12 @@ Phase 3.3 变更：
 - IngestionPipeline 新增 enable_citation_extraction 参数
 - 启用后在 Neo4j 写入后提取参考文献，创建 Reference 节点和 CITES 关系
 - delete_document 同步删除文档的 CITES 关系（Reference 节点保留供共享）
+
+Phase 10-1 变更：
+- IngestionPipeline 新增 enable_section_chunking 参数（默认 True）
+- 启用且文档有章节信息时，使用 SectionChunker 按语义边界分块
+- 无章节信息或 enable_section_chunking=False 时，仍 fallback 到 DocumentChunker
+- 新策略仅影响新入库文档，已入库文档需重新入库才能生效
 """
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -35,6 +41,7 @@ from dataclasses import dataclass, field
 import threading
 
 from src.chunker import DocumentChunker
+from src.ingestion.section_chunker import SectionChunker
 from src.config import settings
 from src.database import MetadataDatabase
 from src.document_parser import DocumentParser
@@ -67,6 +74,7 @@ class IngestionPipeline:
         enable_modal_extraction: bool = False,
         enable_section_recognition: bool = False,
         enable_citation_extraction: bool = False,
+        enable_section_chunking: bool = True,   # Phase 10-1：启用语义分块
     ) -> None:
         self._enable_entity_extraction = (
             enable_entity_extraction
@@ -79,7 +87,12 @@ class IngestionPipeline:
             enable_modal_extraction=enable_modal_extraction,
             enable_section_recognition=enable_section_recognition,
         )
-        self.chunker = DocumentChunker()
+        # Phase 10-1：启用语义分块时使用 SectionChunker；否则沿用 DocumentChunker。
+        # 注意：SectionChunker 内部会在以下情况自动 fallback 到 DocumentChunker：
+        #   - enable_section_recognition=False（page_sections 为空）
+        #   - page_sections 与 pages 长度不一致
+        # 因此即使 enable_section_chunking=True 但未开启章节识别，行为与默认一致。
+        self.chunker = SectionChunker() if enable_section_chunking else DocumentChunker()
         self.metadata_extractor = MetadataExtractor()
         self.database = MetadataDatabase()
         self.vector_store = VectorStore()
