@@ -18,7 +18,8 @@ JSONL 行格式（两种类型）：
       "user_input": "RAG 和 GraphRAG 有什么区别？",
       "new_messages": [...],
       "sources": ["paper.pdf#chunk-3"],
-      "token_usage": {"prompt": 1200, "completion": 350, "total": 1550}
+      "token_usage": {"prompt": 1200, "completion": 350, "total": 1550},
+      "cost_cny": 0.000048                  ← Phase 9-3: 本轮估算人民币费用（round 6位）
     }
 
     type=summary  压缩摘要（追加写入，不重写主 JSONL）
@@ -181,12 +182,16 @@ class SessionManager:
         self,
         session_id:    str,
         *,
-        title:         Optional[str]  = None,
-        token_delta:   Optional[dict] = None,
-        increment_turn: bool          = False,
+        title:         Optional[str]   = None,
+        token_delta:   Optional[dict]  = None,
+        cost_delta:    Optional[float] = None,
+        increment_turn: bool           = False,
     ) -> dict:
         """
         部分更新 meta.json，未传入的字段保持不变。
+
+        Phase 9-3 新增：
+        - cost_delta: 本轮估算费用（元），累计到 total_cost_cny 字段
 
         Note: 压缩游标（compressed_until_turn_id）已废弃。
               load() 改从 JSONL 中的 covers_turn_ids 字段判断旧轮，
@@ -197,12 +202,13 @@ class SessionManager:
 
         if not meta:
             meta = {
-                "session_id":   session_id,
-                "title":        title or "新会话",
-                "created_at":   now_iso,
-                "updated_at":   now_iso,
-                "turn_count":   0,
-                "total_tokens": 0,
+                "session_id":     session_id,
+                "title":          title or "新会话",
+                "created_at":     now_iso,
+                "updated_at":     now_iso,
+                "turn_count":     0,
+                "total_tokens":   0,
+                "total_cost_cny": 0.0,
             }
 
         meta["updated_at"] = now_iso
@@ -214,6 +220,10 @@ class SessionManager:
         if token_delta:
             meta["total_tokens"] = (
                 meta.get("total_tokens", 0) + token_delta.get("total", 0)
+            )
+        if cost_delta is not None:
+            meta["total_cost_cny"] = round(
+                meta.get("total_cost_cny", 0.0) + cost_delta, 6
             )
 
         self._save_meta(session_id, meta)
@@ -323,6 +333,7 @@ class SessionManager:
         new_messages: list[BaseMessage],
         sources:      list[str],
         token_usage:  dict,
+        cost_cny:     float = 0.0,
     ) -> None:
         """
         追加写入一行增量 JSONL 记录（原子操作，不可变）。
@@ -333,10 +344,13 @@ class SessionManager:
             new_messages: 本轮新增的 LangChain 消息（不含历史）
             sources:      本轮引用的文献来源列表
             token_usage:  {"prompt": int, "completion": int, "total": int}
+            cost_cny:     本轮估算人民币费用（Phase 9-3）
         """
         now_iso = datetime.now(timezone.utc).isoformat()
         # [3] 纳秒时间戳：即使同毫秒并发也不会碰撞
         turn_id = f"t{_time.time_ns()}"
+        # Phase 9-3: 统一 round，保证 JSONL 单轮记录与 meta 累计值精度一致
+        normalized_cost = round(cost_cny, 6)
 
         # 序列化消息
         serialized: list[dict] = []
@@ -354,6 +368,7 @@ class SessionManager:
             "new_messages": serialized,
             "sources":      sources,
             "token_usage":  token_usage,
+            "cost_cny":     normalized_cost,
         }
 
         self._append_jsonl(session_id, record)
@@ -366,6 +381,7 @@ class SessionManager:
             session_id,
             title=title,
             token_delta=token_usage,
+            cost_delta=normalized_cost,
             increment_turn=True,
         )
 

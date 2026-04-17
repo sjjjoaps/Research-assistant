@@ -230,12 +230,13 @@ async def list_sessions():
     返回所有会话的元数据列表，按最近更新时间倒序排列。
 
     响应字段：
-        session_id   str   — 会话唯一标识
-        title        str   — 会话标题（第一轮 user_input 前 30 字）
-        created_at   str   — 会话创建时间（ISO 8601）
-        updated_at   str   — 最近更新时间（ISO 8601）
-        turn_count   int   — 已完成对话轮数
-        total_tokens int   — 累计 token 用量
+        session_id      str   — 会话唯一标识
+        title           str   — 会话标题（第一轮 user_input 前 30 字）
+        created_at      str   — 会话创建时间（ISO 8601）
+        updated_at      str   — 最近更新时间（ISO 8601）
+        turn_count      int   — 已完成对话轮数
+        total_tokens    int   — 累计 token 用量
+        total_cost_cny  float — 累计估算人民币费用（Phase 9-3）
     """
     sm = get_session_manager()
     sessions = sm.list_sessions()   # list[dict]
@@ -249,6 +250,7 @@ async def list_sessions():
             updated_at=s.get("updated_at", ""),
             turn_count=s.get("turn_count", 0),
             total_tokens=s.get("total_tokens", 0),
+            total_cost_cny=s.get("total_cost_cny", 0.0),
         ))
 
     # 按 updated_at 倒序（最近在前）

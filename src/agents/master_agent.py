@@ -1,5 +1,5 @@
 """
-MasterAgent：GraphAssistant 的核心 Agent（Phase 8-5，Review 修订版）。
+MasterAgent：GraphAssistant 的核心 Agent（Phase 8-5，Review 修订版；Phase 9-3 费用追踪）。
 
 架构参考 claw-code src/runtime.py 的 run_turn_loop() 的 for-break 安全阀结构：
 - for-break 循环（MAX_ITERATIONS=10）：终止条件由 LangChain tool_calls 是否为空决定
@@ -18,13 +18,18 @@ Review 修订要点（v2）：
           和 prompt_tokens/completion_tokens，适配不同 provider/版本差异。
   [Fix-6] asyncio.get_running_loop() 替换 asyncio.get_event_loop()。
 
+Phase 9-3 新增：
+  - _estimate_cost() 从 settings 读取定价（支持 .env 中 PRICE_PER_1K_PROMPT / PRICE_PER_1K_COMPLETION 覆盖）
+  - save_turn() 携带 cost_cny，session meta 累计 total_cost_cny
+  - UsageEvent 推送 prompt_tokens / completion_tokens / total_tokens / estimated_cost_cny
+
 辅助函数说明：
     _accumulate_tool_calls(pending, chunk_calls) — 增量累积 tool_calls 为 list[dict]
     _finalize_tool_calls(pending)                — 将字符串 args 解析为 dict
     _accumulate_tokens(totals, chunk)            — 多字段兼容的 token 统计
     _summarize_tool_result(content)              — 提取工具结果一行摘要
     _extract_sources(content)                    — 提取 [来源: xxx] 列表
-    _estimate_cost(tokens)                       — 估算人民币费用
+    _estimate_cost(tokens)                       — 估算人民币费用（从 settings 读取定价）
     _get_tool_func(name, tools)                  — 按名称查找工具函数
     _collect_new_messages(messages, base_length) — 提取本轮新增消息（含 HumanMessage）
 
@@ -65,13 +70,10 @@ from src.agents.events import (
 from src.agents.prompt_loader import load_master_agent_system_prompt
 from src.agents.session_manager import SessionManager
 from src.agents.tool_registry import TOOL_DISPLAY_NAMES, build_tool_registry
+from src.config import settings
 from src.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
-
-# ── 费用估算（DashScope 参考定价，可从 config 覆盖）──────────────────────────
-_PRICE_PER_1K_PROMPT: float = 0.04      # 元/千 token（输入）
-_PRICE_PER_1K_COMPLETION: float = 0.12  # 元/千 token（输出）
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -213,10 +215,10 @@ def _extract_sources(content: str) -> list[str]:
 
 
 def _estimate_cost(tokens: dict) -> float:
-    """根据 token 数估算人民币费用。"""
+    """根据 token 数估算人民币费用（定价从 settings 读取，支持 .env 覆盖）。"""
     return (
-        tokens.get("prompt", 0) / 1000 * _PRICE_PER_1K_PROMPT
-        + tokens.get("completion", 0) / 1000 * _PRICE_PER_1K_COMPLETION
+        tokens.get("prompt", 0) / 1000 * settings.price_per_1k_prompt
+        + tokens.get("completion", 0) / 1000 * settings.price_per_1k_completion
     )
 
 
@@ -423,11 +425,12 @@ class MasterAgent:
         if sources_collected:
             yield SourcesEvent(sources=list(dict.fromkeys(sources_collected)))
 
+        estimated_cost_cny = round(_estimate_cost(total_tokens), 6)
         yield UsageEvent(
             total_tokens=total_tokens.get("prompt", 0) + total_tokens.get("completion", 0),
             prompt_tokens=total_tokens.get("prompt", 0),
             completion_tokens=total_tokens.get("completion", 0),
-            estimated_cost_cny=round(_estimate_cost(total_tokens), 6),
+            estimated_cost_cny=estimated_cost_cny,
         )
 
         # 7. [Fix-1] 持久化本轮新增消息（含 HumanMessage）
@@ -446,6 +449,7 @@ class MasterAgent:
                         + total_tokens.get("completion", 0)
                     ),
                 },
+                cost_cny=estimated_cost_cny,
             )
         except Exception as exc:
             logger.warning("会话持久化失败 [session=%s]: %s", session_id, exc)

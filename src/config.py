@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     neo4j_username: str = Field(default="neo4j", alias="NEO4J_USERNAME")
     neo4j_password: str = Field(default="neo4j", alias="NEO4J_PASSWORD")
 
+    # Token 费用估算（DashScope 参考定价，可通过 .env 覆盖）
+    price_per_1k_prompt: float = Field(default=0.04, alias="PRICE_PER_1K_PROMPT")
+    price_per_1k_completion: float = Field(default=0.12, alias="PRICE_PER_1K_COMPLETION")
+
 
 # 全局单例
 settings = Settings()

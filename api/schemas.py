@@ -236,3 +236,4 @@ class SessionMeta(BaseModel):
     updated_at: str = Field(..., description="最近更新时间（ISO 8601）")
     turn_count: int = Field(default=0, description="已完成的对话轮数")
     total_tokens: int = Field(default=0, description="累计 token 用量")
+    total_cost_cny: float = Field(default=0.0, description="累计估算人民币费用（Phase 9-3）")
