@@ -1,5 +1,5 @@
 """
-MasterAgent：GraphAssistant 的核心 Agent（Phase 8-5，Review 修订版；Phase 9-3 费用追踪）。
+MasterAgent：GraphAssistant 的核心 Agent（Phase 8-5，Review 修订版；Phase 9-3 费用追踪；Phase 9-5 长期记忆）。
 
 架构参考 claw-code src/runtime.py 的 run_turn_loop() 的 for-break 安全阀结构：
 - for-break 循环（MAX_ITERATIONS=10）：终止条件由 LangChain tool_calls 是否为空决定
@@ -22,6 +22,10 @@ Phase 9-3 新增：
   - _estimate_cost() 从 settings 读取定价（支持 .env 中 PRICE_PER_1K_PROMPT / PRICE_PER_1K_COMPLETION 覆盖）
   - save_turn() 携带 cost_cny，session meta 累计 total_cost_cny
   - UsageEvent 推送 prompt_tokens / completion_tokens / total_tokens / estimated_cost_cny
+
+Phase 9-5 新增：
+  - 检测 save_user_memory 工具调用，设置 memory_written_this_turn 标志
+  - turn end 后触发 _fire_memory_extractor()：若主模型未写记忆则启动后台 extractor
 
 辅助函数说明：
     _accumulate_tool_calls(pending, chunk_calls) — 增量累积 tool_calls 为 list[dict]
@@ -341,6 +345,7 @@ class MasterAgent:
 
         sources_collected: list[str] = []
         total_tokens: dict = {"prompt": 0, "completion": 0}
+        memory_written_this_turn: bool = False  # Phase 9-5: 主模型是否已写记忆
 
         # 2. Agent 主循环（for-break 安全阀）
         for iteration in range(self.MAX_ITERATIONS):
@@ -408,6 +413,11 @@ class MasterAgent:
 
                 result_content = await self._execute_tool_safe(tool_call)
 
+                # Phase 9-5: 主模型调用了 save_user_memory 且真正成功，才标记本轮已写记忆
+                # [必须修复] 仅凭工具名置 True 会导致保存失败时也跳过后台 extractor
+                if tool_name == "save_user_memory" and not result_content.startswith("[记忆保存失败]"):
+                    memory_written_this_turn = True
+
                 elapsed_ms = int((time.time() - start_time) * 1000)
                 yield ToolEndEvent(
                     tool_name=tool_name,
@@ -454,6 +464,14 @@ class MasterAgent:
         except Exception as exc:
             logger.warning("会话持久化失败 [session=%s]: %s", session_id, exc)
 
+        # Phase 9-5: turn end 后台记忆提取（主模型已写时跳过，避免重复）
+        self._fire_memory_extractor(
+            session_id=session_id,
+            user_input=user_input,
+            messages=messages,
+            memory_written=memory_written_this_turn,
+        )
+
         yield DoneEvent(session_id=session_id)
 
     # ── 工具执行（失败降级）──────────────────────────────────────────────
@@ -491,3 +509,60 @@ class MasterAgent:
                 f"[工具调用失败] {tool_name}: {exc}\n"
                 f"请尝试换一种方式或直接基于已有信息回答用户。"
             )
+
+    # ── 后台记忆提取（Phase 9-5）──────────────────────────────────────────
+
+    def _fire_memory_extractor(
+        self,
+        session_id:     str,
+        user_input:     str,
+        messages:       list,
+        memory_written: bool,
+    ) -> None:
+        """
+        turn end 后触发后台记忆提取器（Phase 9-5-3）。
+
+        若主模型本轮已调用 save_user_memory 写入记忆（memory_written=True），
+        则跳过，避免后台 extractor 重复写入。
+
+        Args:
+            session_id:     会话 ID（仅用于日志标识）
+            user_input:     本轮用户输入
+            messages:       当前完整消息列表（含本轮所有消息）
+            memory_written: 主模型是否已在本轮写入记忆
+        """
+        if memory_written:
+            logger.debug(
+                "本轮主模型已写入记忆，跳过后台 extractor [session=%s]",
+                session_id,
+            )
+            return
+
+        # 提取 AI 最终回答（最后一条 role=ai 且无 tool_calls 的非空消息）
+        from langchain_core.messages import AIMessage as _AIMsg
+        ai_response = ""
+        for msg in reversed(messages):
+            if (
+                isinstance(msg, _AIMsg)
+                and not msg.tool_calls
+                and msg.content
+                and str(msg.content).strip()
+            ):
+                ai_response = str(msg.content).strip()
+                break
+
+        if not ai_response or not user_input.strip():
+            return  # 无实质内容，跳过
+
+        try:
+            import threading
+            from src.agents.memory_extractor import extract_and_save_memory
+            t = threading.Thread(
+                target=extract_and_save_memory,
+                args=(user_input, ai_response, session_id),
+                daemon=True,
+                name=f"mem-extract-{session_id[:8]}",
+            )
+            t.start()
+        except Exception as exc:
+            logger.warning("后台记忆提取器启动失败 [session=%s]: %s", session_id, exc)

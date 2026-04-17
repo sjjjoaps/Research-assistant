@@ -1,5 +1,5 @@
 """
-七个核心工具的定义与注册（Phase 9-1）。
+八个核心工具的定义与注册（Phase 9-1；Phase 9-5 长期记忆集成）。
 
 将现有 Agent 和检索器封装为 LLM 可调用的 @tool，对应 claw-code 的
 `load_tool_snapshot()` + `@lru_cache` 模式：
@@ -15,6 +15,12 @@
     5. get_document_metadata     — 单篇文献元数据
     6. search_by_entity          — 知识图谱实体查询
     7. get_knowledge_graph_stats — 知识图谱统计信息
+    8. save_user_memory          — 将用户偏好/规则写入长期记忆（Phase 9-5-2）
+
+Phase 9-5 长期记忆集成：
+    - _do_retrieve() 在 auto 模式下优先查询 LongTermMemory.get_best_mode()，
+      有历史最优 mode 时直接使用，否则回退到启发式 _auto_select_mode()
+    - 每次检索完成后异步调用 LongTermMemory.record_strategy_result() 记录效果
 
 用法：
     from src.agents.tool_registry import build_tool_registry, TOOL_DISPLAY_NAMES
@@ -57,6 +63,7 @@ TOOL_DISPLAY_NAMES: dict[str, str] = {
     "get_document_metadata":     "正在获取文献详情...",
     "search_by_entity":          "正在查询知识图谱...",
     "get_knowledge_graph_stats": "正在统计知识图谱...",
+    "save_user_memory":          "正在保存长期记忆...",
 }
 
 
@@ -131,10 +138,29 @@ def _do_retrieve(
 
     时间约束存在时，检索阶段扩大到 top_k * 4 再过滤，
     防止前 top_k 结果全为旧文献时新文献无法进入过滤阶段。
+
+    Phase 9-5 长期记忆集成：
+      - auto 模式优先查询 LongTermMemory.get_best_mode()，有历史最优时直接使用
+      - 检索完成后异步调用 record_strategy_result() 记录本次策略效果
     """
+    # Phase 9-5: 分类问题类型，供长期记忆记录和查询使用
+    from src.core.long_term_memory import LongTermMemory, classify_question_type
+    ltm = LongTermMemory.get_instance()
+    question_type = classify_question_type(query)
+
     if mode == "auto":
-        mode = _auto_select_mode(query)
-        logger.debug("auto 模式选择: %s", mode)
+        # Phase 9-5: temporal 查询跳过 LTM，时效性路由由启发式规则保证（[8]）
+        if question_type != "temporal":
+            history_mode = ltm.get_best_mode(question_type)
+        else:
+            history_mode = None
+
+        if history_mode:
+            mode = history_mode
+            logger.debug("auto 模式 → 历史最优: %s (type=%s)", mode, question_type)
+        else:
+            mode = _auto_select_mode(query)
+            logger.debug("auto 模式 → 启发式选择: %s", mode)
 
     # 判断是否存在时间约束，存在时扩大召回量
     from src.retrieval.time_filter import extract_time_constraint
@@ -181,19 +207,28 @@ def _do_retrieve(
         sf = section_filter if section_filter else None
         chunks = retriever.retrieve(query, section_type=sf)
         # SemanticRetriever 已支持 section_type 过滤，直接跳到时间过滤
-        return _apply_time_filter(chunks, query, year_from, year_to, top_k)
+        result = _apply_time_filter(chunks, query, year_from, year_to, top_k)
+        # Phase 9-5: 记录策略效果；continued = 有结果则视为有效（[9]）
+        ltm.record_strategy_result(question_type, "semantic", len(result),
+                                   continued=len(result) > 0)
+        return result
     else:
-        # fallback: semantic
+        # fallback: semantic；effective_mode 记录为 "semantic" 避免非法 mode 污染（[7]）
         logger.warning("未知 mode=%r，fallback 到 semantic", mode)
         from src.retriever import SemanticRetriever
         retriever = SemanticRetriever(top_k=fetch_k)
         chunks = retriever.retrieve(query)
+        mode = "semantic"   # 统一用 mode 变量，后续记录时保持一致
 
     # section_filter 后过滤（除 semantic 外，其余检索器不原生支持）
     if section_filter:
         chunks = [c for c in chunks if getattr(c, "section_type", "") == section_filter]
 
-    return _apply_time_filter(chunks, query, year_from, year_to, top_k)
+    result = _apply_time_filter(chunks, query, year_from, year_to, top_k)
+    # Phase 9-5: 记录策略效果；continued = 有结果视为有效（[9]），不再默认 True
+    ltm.record_strategy_result(question_type, mode, len(result),
+                               continued=len(result) > 0)
+    return result
 
 
 def _apply_time_filter(
@@ -669,6 +704,61 @@ def get_knowledge_graph_stats() -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════
+# 工具 8：save_user_memory（Phase 9-5-2）
+# ════════════════════════════════════════════════════════════════════════════
+
+@tool("save_user_memory")
+def save_user_memory(
+    title: str,
+    body: str,
+    memory_type: str = "preference",
+) -> str:
+    """
+    将用户明确要求持久化的偏好、规则或重要信息保存到长期记忆中。
+
+    【使用场景】
+    - 用户说"记住这个偏好"/"以后都这样做"/"记录一下这条规则"时立即调用
+    - 用户明确要求持久化某个策略或行为准则时
+
+    【不应调用的场景】
+    - 普通对话内容（无需持久化的临时信息）
+    - 用户没有明确要求记忆的内容
+    - 单次检索结论、临时问题的答案
+
+    【参数说明】
+    - title: 记忆标题（简洁，10-30 字）
+    - body: 记忆正文（详细描述，支持 Markdown）
+    - memory_type: 类型标签（preference/rule/note，默认 preference）
+    """
+    # [建议] memory_type 白名单校验，主模型直写只允许 preference/rule/note
+    _ALLOWED_TYPES = {"preference", "rule", "note"}
+    if memory_type not in _ALLOWED_TYPES:
+        memory_type = "preference"
+
+    try:
+        from src.core.long_term_memory import LongTermMemory, _slugify
+        ltm  = LongTermMemory.get_instance()
+        slug = _slugify(title)
+
+        # [必须修复] description 从 body 首行提取，而非直接复制 title
+        first_line = body.strip().splitlines()[0].strip() if body.strip() else title
+        description = first_line[:100]  # 限制在 100 字内
+
+        ltm.save_memory(
+            title=title,
+            slug=slug,
+            description=description,
+            body=body,
+            metadata={"type": memory_type, "source": "user_explicit"},
+        )
+        logger.info("save_user_memory: 已写入记忆 %s.md", slug)
+        return f"[记忆已保存] 标题：{title}，文件：{slug}.md"
+    except Exception as exc:
+        logger.error("save_user_memory 执行失败: %s", exc, exc_info=True)
+        return f"[记忆保存失败] {exc}"
+
+
+# ════════════════════════════════════════════════════════════════════════════
 # 工具注册入口（对应 claw-code 的 @lru_cache + load_tool_snapshot）
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -690,6 +780,7 @@ def build_tool_registry() -> list:
         get_document_metadata,
         search_by_entity,
         get_knowledge_graph_stats,
+        save_user_memory,
     ]
     logger.info("工具注册完成：%s", [t.name for t in tools])
     return tools

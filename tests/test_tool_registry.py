@@ -1,9 +1,9 @@
 """
-测试 tool_registry（Phase 8-3）
+测试 tool_registry（Phase 8-3，Phase 9-5-2 更新）
 
 测试策略：
 - 工具注册层测试（不依赖外部服务）：
-    1. build_tool_registry() 返回 7 个工具
+    1. build_tool_registry() 返回 8 个工具（Phase 9-5-2 新增 save_user_memory）
     2. 工具名称与 TOOL_DISPLAY_NAMES 完全对应
     3. 所有工具具备有效的 name / description / args_schema
     4. build_tool_registry() 是单例（两次调用返回同一对象）
@@ -74,9 +74,9 @@ def _make_doc(title: str = "Test Paper",
 # ══════════════════════════════════════════════════════════════════════════
 
 def test_registry_count():
-    """build_tool_registry() 应返回 7 个工具。"""
+    """build_tool_registry() 应返回 8 个工具（Phase 9-5-2 新增 save_user_memory）。"""
     tools = build_tool_registry()
-    assert len(tools) == 7, f"期望 7 个工具，实际 {len(tools)}"
+    assert len(tools) == 8, f"期望 8 个工具，实际 {len(tools)}"
     print("[PASS] test_registry_count")
 
 

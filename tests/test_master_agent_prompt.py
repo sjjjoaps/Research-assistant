@@ -15,7 +15,7 @@
     8. 缺少单个必要章节（异常与空结果处理）→ ok=False，errors 中含对应章节名
     9. Prompt 过短 → ok=False，errors 中包含"过短"提示
    10. 传入未知工具名 → 进入 warnings，不影响 ok
-   11. 7 个工具名均在 Prompt 中明确出现（内联列表，不依赖 tool_registry）
+   11. 8 个工具名均在 Prompt 中明确出现（内联列表，不依赖 tool_registry）
 
 - fallback Prompt 结构验证：
    12. 内置 fallback Prompt 应通过 validate，ok=True（确保 fallback 结构与正式一致）
@@ -50,6 +50,7 @@ _EXPECTED_TOOL_NAMES = [
     "get_document_metadata",
     "search_by_entity",
     "get_knowledge_graph_stats",
+    "save_user_memory",   # Phase 9-5-2 新增
 ]
 
 
@@ -237,12 +238,12 @@ def test_validate_unknown_tool_warning():
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Case 11：7 个工具名均在 Prompt 中出现（内联列表，不依赖 tool_registry）
+# Case 11：8 个工具名均在 Prompt 中出现（内联列表，不依赖 tool_registry）
 # ══════════════════════════════════════════════════════════════════════════
 
 def test_all_expected_tools_covered_in_prompt():
     """
-    所有 7 个预期工具名均应在系统 Prompt 中有明确出现。
+    所有 8 个预期工具名均应在系统 Prompt 中有明确出现。
     使用内联 _EXPECTED_TOOL_NAMES，不导入 tool_registry，保持测试独立性。
     """
     load_master_agent_system_prompt.cache_clear()
