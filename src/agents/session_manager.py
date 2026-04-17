@@ -37,12 +37,19 @@ JSONL 行格式（两种类型）：
     [4] 摘要以 SystemMessage 注入，不伪造 HumanMessage/AIMessage
     [5] 删除未使用的 SYSTEM_PROMPT_PATH 常量
     [6] 压缩 Prompt 抽取到 prompt/session_compact_system.md 统一管理
+
+Phase 9-4 新增：
+    [7] _build_history_text()：从 new_messages 提取 AI 最终回答，
+        生成完整"用户-助手"对话文本，摘要质量优于仅传 user_input
+    [8] _compact_if_needed()：压缩后重置 meta.total_tokens 为保留轮次的
+        token 之和，防止压缩后立即再次触发压缩
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
+import threading
 import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,7 +70,7 @@ logger = logging.getLogger(__name__)
 # 压缩摘要 Prompt 文件路径（[6] 统一 Prompt 管理）
 _COMPACT_PROMPT_PATH = Path("prompt/session_compact_system.md")
 _COMPACT_PROMPT_FALLBACK = (
-    "请用简洁的中文摘要以下对话历史（不超过200字），"
+    "请用简洁的中文摘要以下对话历史（不超过250字），"
     "保留关键信息（用户的主要问题、找到的重要文献、得出的主要结论）：\n\n{history}"
 )
 
@@ -385,8 +392,14 @@ class SessionManager:
             increment_turn=True,
         )
 
-        # 超出阈值时触发压缩
-        self._compact_if_needed(session_id)
+        # 超出阈值时触发压缩（daemon thread，不阻塞调用方 async 事件循环）
+        t = threading.Thread(
+            target=self._compact_if_needed,
+            args=(session_id,),
+            daemon=True,
+            name=f"compact-{session_id[:8]}",
+        )
+        t.start()
 
     def list_sessions(self) -> list[dict]:
         """
@@ -424,21 +437,67 @@ class SessionManager:
         meta = self._load_meta(session_id)
         return meta if meta else None
 
-    # ── 会话压缩（骨架，Phase 9-4 完整实现）────────────────────────────────
+    # ── 会话压缩（Phase 9-4 完整实现）───────────────────────────────────────
 
     def _estimate_total_tokens(self, session_id: str) -> int:
         """从 meta 获取已累计的 token 总量（估算值）。"""
         return self._load_meta(session_id).get("total_tokens", 0)
 
+    def _build_history_text(self, turns: list[dict]) -> str:
+        """
+        将 turn records 转为可读的对话历史文本，供 LLM 摘要使用。
+
+        Phase 9-4：从 new_messages 提取 AI 最终回答（最后一条 role=ai 且无
+        tool_calls 的消息），与 user_input 配对，生成完整"用户-助手"对话格式。
+        仅取 user_input 的旧版已废弃，新版包含助手回答，摘要质量更高。
+
+        截断策略（head+tail）：取前 250 字 + "…" + 后 150 字，保留开头上下文
+        和结论段落，比单纯截头更能覆盖 AI 回答的核心内容。
+        若某轮无合格 AI 消息（全为中间推理或工具错误），该轮只保留用户问题，
+        此为设计意图：宁缺失助手内容也不引入错误信息。
+
+        格式示例：
+            [第 1 轮]
+            用户：RAG 和 GraphRAG 有什么区别？
+            助手：RAG 基于向量检索……（前250字）…（后150字）
+        """
+        _HEAD = 250
+        _TAIL = 150
+
+        parts: list[str] = []
+        for idx, turn in enumerate(turns, start=1):
+            user_input = turn.get("user_input", "").strip()
+            # 从 new_messages 找最后一条 role=ai 且无 tool_calls 的消息（最终回答）
+            ai_answer = ""
+            for msg in reversed(turn.get("new_messages", [])):
+                if (
+                    msg.get("role") == "ai"
+                    and not msg.get("tool_calls")
+                    and msg.get("content", "").strip()
+                ):
+                    ai_answer = msg["content"].strip()
+                    break
+
+            block = f"[第 {idx} 轮]\n用户：{user_input}"
+            if ai_answer:
+                total = _HEAD + _TAIL
+                if len(ai_answer) <= total:
+                    truncated = ai_answer
+                else:
+                    truncated = ai_answer[:_HEAD] + "…" + ai_answer[-_TAIL:]
+                block += f"\n助手：{truncated}"
+            parts.append(block)
+        return "\n\n".join(parts)
+
     def _compact_if_needed(self, session_id: str) -> None:
         """
-        Token 超过阈值时触发压缩：
-        1. 从 JSONL 中找出尚未被任何 summary 覆盖的旧轮
-        2. 对这些旧轮用 LLM 生成摘要
-        3. 追加 summary 记录（covers_turn_ids 记录本次覆盖的 turn_id 集合）
-        4. 不再写 meta 压缩游标（load() 直接读 JSONL 中的 covers_turn_ids）
+        Token 超过阈值时触发压缩（Phase 9-4 完整实现）：
 
-        完整的 LLM 压缩在 Phase 9-4 实现；此处提供可运行骨架。
+        1. 从 JSONL 中找出尚未被任何 summary 覆盖的旧轮
+        2. 保留最近 KEEP_RECENT_TURNS 轮原始记录，其余送入 LLM 生成摘要
+        3. 追加 summary 记录（covers_turn_ids 记录本次覆盖的 turn_id 集合）
+        4. 重置 meta.total_tokens = 保留轮次的 token 之和，防止反复触发压缩
+        5. 不再写 meta 压缩游标（load() 直接读 JSONL 中的 covers_turn_ids）
         """
         if self._estimate_total_tokens(session_id) <= self.COMPACT_TOKEN_THRESHOLD:
             return
@@ -462,6 +521,7 @@ class SessionManager:
             return  # 可压缩轮次不足，跳过
 
         turns_to_compress = uncovered_turns[: -self.KEEP_RECENT_TURNS]
+        turns_to_keep     = uncovered_turns[-self.KEEP_RECENT_TURNS:]
 
         try:
             summary_text = self._generate_summary(turns_to_compress)
@@ -477,30 +537,51 @@ class SessionManager:
             "compressed_at":   now_iso,
         }
         self._append_jsonl(session_id, summary_record)
-        # [1] 不再更新 meta 压缩游标，load() 改从 covers_turn_ids 判断
+
+        # 重置 total_tokens = 保留轮次 token 之和 + summary 注入上下文的粗估 token
+        # summary 注入时会作为 SystemMessage 出现在下一轮上下文中，需计入，
+        # 否则下次触发点会偏晚。粗估：字符数 / 1.5（中文约 1.5 字符/token）
+        retained_tokens = sum(
+            t.get("token_usage", {}).get("total", 0)
+            for t in turns_to_keep
+        )
+        summary_token_est = max(1, int(len(summary_text) / 1.5))
+        meta = self._load_meta(session_id)
+        if meta:
+            meta["total_tokens"] = retained_tokens + summary_token_est
+            self._save_meta(session_id, meta)
+
         logger.info(
-            "会话 %s 已压缩 %d 轮，summary 写入完毕",
+            "会话 %s 已压缩 %d 轮 → %d 轮保留，"
+            "retained_tokens=%d summary_token_est=%d summary_len=%d",
             session_id,
             len(turns_to_compress),
+            len(turns_to_keep),
+            retained_tokens,
+            summary_token_est,
+            len(summary_text),
         )
 
     def _generate_summary(self, turns: list[dict]) -> str:
         """
-        调用 LLM 生成多轮对话摘要。
-        Prompt 从 prompt/session_compact_system.md 加载（[6] 统一 Prompt 管理）。
-        Phase 9-4 会在此基础上传入完整的 new_messages，提升摘要质量。
+        调用 LLM 生成多轮对话摘要（Phase 9-4 升级版）。
+
+        改进：
+        - 使用 _build_history_text() 将完整"用户-助手"对话文本传入 LLM，
+          而非仅传 user_input，使摘要包含助手结论，质量显著提升。
+        - Prompt 从 prompt/session_compact_system.md 加载（统一 Prompt 管理），
+          文件不存在时使用内置 fallback。
+        - temperature=0.0 保证摘要确定性。
         """
         from src.llm_client import get_llm
 
-        # [6] 从文件加载 Prompt，文件不存在时使用 fallback
+        # 从文件加载 Prompt，文件不存在时使用 fallback
         if _COMPACT_PROMPT_PATH.exists():
             template = _COMPACT_PROMPT_PATH.read_text(encoding="utf-8")
         else:
             template = _COMPACT_PROMPT_FALLBACK
 
-        history_text = "\n".join(
-            f"用户：{t.get('user_input', '')}" for t in turns
-        )
+        history_text = self._build_history_text(turns)
         prompt = template.replace("{history}", history_text)
 
         llm    = get_llm(temperature=0.0)
