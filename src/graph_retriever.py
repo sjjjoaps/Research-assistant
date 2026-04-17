@@ -69,18 +69,19 @@ class GraphRetriever:
 
         Returns list of dicts:
           {chunk_id, content, chunk_index, file_path, matched_entity_names,
-           matched_entity_ids, hit_count}
+           matched_entity_ids, year, hit_count}
         """
         if not keywords:
             return []
 
-        # 构建 CONTAINS 匹配条件；每个关键词单独命中即可
+        # Phase 9-2: 通过 Document -[:HAS_CHUNK]-> Chunk 反查年份
         query = """
         UNWIND $keywords AS kw
         MATCH (e:Entity)
         WHERE toLower(e.name) CONTAINS toLower(kw)
         WITH e
         MATCH (c:Chunk)-[:MENTIONS]->(e)
+        OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(c)
         RETURN
             c.id          AS chunk_id,
             c.content     AS content,
@@ -88,6 +89,7 @@ class GraphRetriever:
             c.file_path   AS file_path,
             collect(e.name) AS matched_entity_names,
             collect(e.id)   AS matched_entity_ids,
+            d.year          AS year,
             count(e)      AS hit_count
         ORDER BY hit_count DESC
         LIMIT $limit
@@ -148,12 +150,20 @@ class GraphRetriever:
             matched_ids: list = row.get("matched_entity_ids") or []
             primary_entity_id = matched_ids[0] if matched_ids else ""
 
+            # Phase 9-2: 从 Document 节点携带的 year 字段提取年份
+            raw_year = row.get("year")
+            try:
+                year: int | None = int(raw_year) if raw_year is not None else None
+            except (ValueError, TypeError):
+                year = None
+
             results.append(
                 RetrievedChunk(
                     content=content,
                     file_path=str(row.get("file_path") or "unknown"),
                     chunk_index=int(row.get("chunk_index") or -1),
                     entity_id=str(primary_entity_id),
+                    year=year,
                 )
             )
 

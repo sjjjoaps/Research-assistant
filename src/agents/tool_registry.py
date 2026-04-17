@@ -97,7 +97,7 @@ def retrieve_knowledge(
 
     【section_filter】可指定章节类型：abstract/method/experiment/conclusion/related_work/""（不限）
 
-    【year_from/year_to】按发表年份过滤，0 表示不限制
+    【year_from/year_to】按发表年份过滤，0 表示不限制；也可留空由系统从查询文本自动提取时间约束
     """
     try:
         chunks = _do_retrieve(query=query, mode=mode, top_k=top_k,
@@ -123,65 +123,116 @@ def _do_retrieve(
     year_from: int,
     year_to: int,
 ) -> list:
-    """根据 mode 路由到对应检索器，并应用 section_filter 后过滤。"""
+    """
+    根据 mode 路由到对应检索器，并按优先级应用时间过滤：
+      1. LLM 显式传入 year_from/year_to → 精确过滤（_apply_year_filter）
+      2. 两者均为 0 → 从 query 自动提取时间约束 → progressive_retrieve 渐进过滤
+      3. 无时间约束 → 返回全量结果
+
+    时间约束存在时，检索阶段扩大到 top_k * 4 再过滤，
+    防止前 top_k 结果全为旧文献时新文献无法进入过滤阶段。
+    """
     if mode == "auto":
         mode = _auto_select_mode(query)
         logger.debug("auto 模式选择: %s", mode)
+
+    # 判断是否存在时间约束，存在时扩大召回量
+    from src.retrieval.time_filter import extract_time_constraint
+    has_time = (year_from != 0 or year_to != 0) or bool(extract_time_constraint(query))
+    fetch_k = top_k * 4 if has_time else top_k
 
     if mode == "dual":
         # Phase 9-1: LightRAG 双极检索（Low-Level + High-Level + one-hop 扩展）
         # try/finally 保证 GraphRetriever / GraphStore 连接在异常时也能释放
         from src.retrieval.lightrag_retriever import LightRAGDualRetriever
-        retriever = LightRAGDualRetriever(top_k=top_k)
+        retriever = LightRAGDualRetriever(top_k=fetch_k)
         try:
-            chunks = retriever.retrieve(query, top_k=top_k)
+            chunks = retriever.retrieve(query, top_k=fetch_k)
         finally:
             retriever.close()
     elif mode == "local":
         from src.retrieval.local_retriever import LocalRetriever
-        retriever = LocalRetriever(top_k=top_k)
-        chunks = retriever.retrieve(query)
+        retriever = LocalRetriever(top_k=fetch_k)
+        try:
+            chunks = retriever.retrieve(query)
+        finally:
+            retriever.close()
     elif mode == "global":
         from src.retrieval.global_retriever import GlobalRetriever
-        retriever = GlobalRetriever(top_k=top_k)
-        chunks = retriever.retrieve(query)
+        retriever = GlobalRetriever(top_k=fetch_k)
+        try:
+            chunks = retriever.retrieve(query)
+        finally:
+            retriever.close()
     elif mode == "mix":
         from src.retrieval.mix_retriever import MixRetriever
-        retriever = MixRetriever(top_k=top_k)
-        chunks = retriever.retrieve(query)
+        retriever = MixRetriever(top_k=fetch_k)
+        try:
+            chunks = retriever.retrieve(query)
+        finally:
+            retriever.close()
     elif mode == "hybrid":
         from src.hybrid_retriever import HybridRetriever
-        retriever = HybridRetriever(top_k=top_k)
+        retriever = HybridRetriever(top_k=fetch_k)
         chunks = retriever.retrieve(query)
     elif mode == "semantic":
         from src.retriever import SemanticRetriever
-        retriever = SemanticRetriever(top_k=top_k)
+        retriever = SemanticRetriever(top_k=fetch_k)
         sf = section_filter if section_filter else None
         chunks = retriever.retrieve(query, section_type=sf)
-        # SemanticRetriever 已支持 section_type 过滤，直接返回
-        return _apply_year_filter(chunks, year_from, year_to)
+        # SemanticRetriever 已支持 section_type 过滤，直接跳到时间过滤
+        return _apply_time_filter(chunks, query, year_from, year_to, top_k)
     else:
         # fallback: semantic
         logger.warning("未知 mode=%r，fallback 到 semantic", mode)
         from src.retriever import SemanticRetriever
-        retriever = SemanticRetriever(top_k=top_k)
+        retriever = SemanticRetriever(top_k=fetch_k)
         chunks = retriever.retrieve(query)
 
     # section_filter 后过滤（除 semantic 外，其余检索器不原生支持）
     if section_filter:
         chunks = [c for c in chunks if getattr(c, "section_type", "") == section_filter]
 
-    return _apply_year_filter(chunks, year_from, year_to)
+    return _apply_time_filter(chunks, query, year_from, year_to, top_k)
+
+
+def _apply_time_filter(
+    chunks: list, query: str, year_from: int, year_to: int, top_k: int = 0
+) -> list:
+    """
+    Phase 9-2 统一时间过滤入口。
+
+    优先级：
+      1. LLM 显式传入 year_from/year_to（任一非 0）→ 精确过滤（_apply_year_filter）
+      2. 两者均为 0 → 从 query 自动提取时间约束 → progressive_retrieve 渐进过滤
+      3. query 无时间约束 → 直接返回结果
+
+    top_k > 0 时，过滤后裁剪至 top_k（因检索阶段用了 fetch_k=top_k*4）。
+    """
+    # LLM 显式指定年份 → 精确过滤（不做渐进放宽，尊重 LLM 判断）
+    if year_from != 0 or year_to != 0:
+        result = _apply_year_filter(chunks, year_from, year_to)
+        return result[:top_k] if top_k > 0 else result
+
+    # 从 query 自动提取时间约束，渐进过滤
+    from src.retrieval.time_filter import extract_time_constraint, progressive_retrieve
+    constraint = extract_time_constraint(query)
+    if constraint:
+        logger.debug("时间感知过滤：constraint=%s", constraint)
+        chunks = progressive_retrieve(chunks, constraint, min_count=3)
+
+    return chunks[:top_k] if top_k > 0 else chunks
 
 
 def _apply_year_filter(chunks: list, year_from: int, year_to: int) -> list:
-    """按 year_from/year_to 过滤 chunk（0 表示不限）。"""
+    """
+    按 LLM 显式传入的 year_from/year_to 精确过滤 chunk（0 表示不限）。
+    Phase 9-2 后仅在 LLM 明确指定年份时调用，自动时间提取走 _apply_time_filter。
+    """
     if year_from == 0 and year_to == 0:
         return chunks
     result = []
     for c in chunks:
-        # RetrievedChunk 暂无 year 字段，通过 metadata 获取（Phase 9-2 补充）
-        # 此处预留兼容：有 year 字段时过滤，无则保留
         year = getattr(c, "year", None)
         if year is None:
             result.append(c)  # 无年份信息时不过滤
@@ -220,10 +271,9 @@ def _auto_select_mode(query: str) -> str:
         hl_count = len(getattr(result, "hl_keywords", []))
         ll_count = len(getattr(result, "ll_keywords", []))
 
-        # 含时间词 → mix（时效性查询不适合图谱精确匹配）
-        time_words = ["最新", "最近", "近期", "近年", "latest", "recent",
-                      "2023", "2024", "2025", "2026"]
-        if any(w in query for w in time_words):
+        # 含时间约束 → mix（时效性查询不适合图谱精确匹配，mix 覆盖更广）
+        from src.retrieval.time_filter import extract_time_constraint
+        if extract_time_constraint(query) is not None:
             return "mix"
 
         has_ll = ll_count >= 1
@@ -246,13 +296,15 @@ def _format_chunks(chunks: list) -> str:
     """将 RetrievedChunk 列表格式化为 Markdown 字符串。"""
     lines = [f"**检索到 {len(chunks)} 个相关片段：**\n"]
     for i, chunk in enumerate(chunks, start=1):
-        source = getattr(chunk, "file_path", "未知来源")
-        idx    = getattr(chunk, "chunk_index", "?")
-        sec    = getattr(chunk, "section_type", "")
+        source  = getattr(chunk, "file_path", "未知来源")
+        idx     = getattr(chunk, "chunk_index", "?")
+        sec     = getattr(chunk, "section_type", "")
+        year    = getattr(chunk, "year", None)
         content = getattr(chunk, "content", str(chunk))
         source_tag = f"[来源: {source}#chunk-{idx}]"
-        sec_tag    = f"（章节: {sec}）" if sec and sec != "unknown" else ""
-        lines.append(f"**[{i}]** {source_tag}{sec_tag}")
+        year_tag   = f"（年份: {year}）" if year else ""
+        sec_tag    = f"（章节: {sec}）" if sec and sec not in ("unknown", "relation", "entity") else ""
+        lines.append(f"**[{i}]** {source_tag}{year_tag}{sec_tag}")
         lines.append(content.strip())
         lines.append("")
     return "\n".join(lines)

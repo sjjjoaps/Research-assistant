@@ -16,7 +16,8 @@ class RetrievedChunk:
     file_path: str
     chunk_index: int
     section_type: str = "unknown"
-    entity_id: str = ""   # Phase 9-1: LightRAG 双极检索 one-hop 扩展使用
+    entity_id: str = ""    # Phase 9-1: LightRAG 双极检索 one-hop 扩展使用
+    year: int | None = None  # Phase 9-2: 时间感知过滤使用
 
 
 class SemanticRetriever:
@@ -47,12 +48,20 @@ class SemanticRetriever:
 
         results: list[RetrievedChunk] = []
         for doc in docs:
+            # Phase 9-2: 从 FAISS metadata 提取 year（由 ingestion_pipeline 写入）
+            raw_year = doc.metadata.get("year")
+            try:
+                year: int | None = int(raw_year) if raw_year is not None else None
+            except (ValueError, TypeError):
+                year = None
+
             results.append(
                 RetrievedChunk(
                     content=doc.page_content,
                     file_path=str(doc.metadata.get("file_path", "unknown")),
                     chunk_index=int(doc.metadata.get("chunk_index", -1)),
                     section_type=str(doc.metadata.get("section_type", "unknown")),
+                    year=year,
                 )
             )
         return results

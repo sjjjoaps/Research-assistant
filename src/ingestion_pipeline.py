@@ -203,6 +203,11 @@ class IngestionPipeline:
 
             # [5] 写入 FAISS
             print(f"[5/{total_steps}] 写入 FAISS")
+            # Phase 9-2: 在写入 FAISS 前将 year/doc_id/title 注入 chunk.metadata，
+            # 供 SemanticRetriever 构建 RetrievedChunk.year，支持时间感知过滤。
+            if metadata.year is not None:
+                for chunk in chunks:
+                    chunk.metadata["year"] = metadata.year
             self.vector_store.add_chunks(chunks)
             self.vector_store.save()
             print("      FAISS 写入完成")

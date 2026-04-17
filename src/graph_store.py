@@ -734,6 +734,7 @@ class GraphStore:
 
         使用参数化 UNWIND 查询，不拼接关键词字符串，防止注入。
         ORDER BY score DESC 保证结果稳定排序（命中关键词越多排越前）。
+        通过 Chunk→Document 反查年份，使 High-Level 结果能参与时间感知过滤。
 
         Args:
             keywords: 高层关键词列表（由 KeywordExtractor 提取的 hl_keywords）。
@@ -741,25 +742,29 @@ class GraphStore:
 
         Returns:
             关系信息列表，每项包含：source_name, target_name, relation_type,
-            description, source_id, target_id。
+            description, source_id, target_id, year（可能为 None）。
         """
         if not keywords:
             return []
 
-        # 使用 UNWIND 参数化，每个关键词单独做 CONTAINS 匹配，
-        # 对同一关系累计命中次数作为排序依据，避免 f-string 注入。
+        # OPTIONAL MATCH Chunk→Document 回查年份；
+        # 同一关系可能由多个 Document 贡献，取最大年份（最新文献优先）
         query = """
         UNWIND $keywords AS kw
         MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
         WHERE toLower(coalesce(r.description, '')) CONTAINS toLower(kw)
         WITH s, r, t, count(kw) AS score
+        OPTIONAL MATCH (c:Chunk)-[:MENTIONS]->(s)
+        OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(c)
+        WITH s, r, t, score, max(d.year) AS year
         RETURN s.id         AS source_id,
                s.name       AS source_name,
                t.id         AS target_id,
                t.name       AS target_name,
                r.relation_type AS relation_type,
                r.description   AS description,
-               score
+               score,
+               year
         ORDER BY score DESC, s.name
         LIMIT $k
         """

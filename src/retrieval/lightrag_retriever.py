@@ -143,6 +143,9 @@ class LightRAGDualRetriever:
         每条关系产生一个 chunk，content 格式与 GlobalRetriever 一致。
         entity_id 字段同时记录 source_id 和 target_id（以 "src::tgt" 分隔），
         供 _collect_entity_ids() 拆分出两端实体，确保 one-hop 扩展覆盖关系的两端。
+
+        Phase 9-2: 从 relation row 的 year 字段提取年份（由 search_by_relations 通过
+        Chunk→Document JOIN 回查），使 High-Level 结果能参与时间感知过滤。
         """
         chunks: list[RetrievedChunk] = []
         for rel in relations:
@@ -157,6 +160,12 @@ class LightRAGDualRetriever:
             ).strip()
             # entity_id 存储 "source_id::target_id"，_collect_entity_ids() 会拆分
             combined_id = f"{source_id}::{target_id}" if source_id and target_id else (source_id or target_id)
+            # 提取年份（search_by_relations 通过 Document JOIN 回查，可能为 None）
+            raw_year = rel.get("year")
+            try:
+                year: int | None = int(raw_year) if raw_year is not None else None
+            except (ValueError, TypeError):
+                year = None
             chunks.append(
                 RetrievedChunk(
                     content=content,
@@ -164,6 +173,7 @@ class LightRAGDualRetriever:
                     chunk_index=-1,
                     section_type="relation",
                     entity_id=combined_id,
+                    year=year,
                 )
             )
         return chunks
