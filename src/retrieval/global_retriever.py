@@ -8,6 +8,12 @@ Global 检索器
 Phase 9-2 新增：
 - _build_year_cache()：在首次检索时从 SQLite 构建 file_path→year 缓存，
   使关系 chunk 能携带 year 参与时间感知过滤
+
+Phase 10-2：retrieve() 新增 section_filter 参数（安全兜底）。
+注意：GlobalRetriever 的输出均为 section_type="relation"/"entity"，
+与文本章节类型（method/abstract 等）语义不一致。
+因此 global 模式与 section_filter 组合通常意义不大，过滤后结果大概率为空。
+如需按章节过滤，建议改用 local/semantic 模式。
 """
 from __future__ import annotations
 
@@ -75,10 +81,26 @@ class GlobalRetriever:
             )
         return chunks
 
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str, section_filter: str = "") -> list[RetrievedChunk]:
+        """
+        Args:
+            query:          用户查询字符串。
+            section_filter: 章节类型过滤（安全兜底）。
+                            GlobalRetriever 结果的 section_type 固定为 "relation"/"entity"，
+                            与文本章节类型不一致，过滤后通常为空。
+                            有 section_filter 时先扩大融合池再过滤，保证候选充分。
+        """
         relation_results = self._relation_docs_to_chunks(query)
         graph_results = self.graph_retriever.retrieve(query)
-        return fuse_ranked_lists([relation_results, graph_results], top_k=self.top_k)
+
+        # section_filter 时扩大融合候选池，保证后过滤有足够候选再裁至 top_k
+        fuse_k = self.top_k * 3 if section_filter else self.top_k
+        fused = fuse_ranked_lists([relation_results, graph_results], top_k=fuse_k)
+
+        if section_filter:
+            fused = [c for c in fused if getattr(c, "section_type", "") == section_filter]
+
+        return fused[: self.top_k]
 
     def close(self) -> None:
         self.graph_retriever.close()

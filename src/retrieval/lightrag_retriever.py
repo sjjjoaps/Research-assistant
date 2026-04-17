@@ -76,13 +76,16 @@ class LightRAGDualRetriever:
 
     # ── 主检索入口 ───────────────────────────────────────────────────────────
 
-    def retrieve(self, query: str, top_k: int | None = None) -> list[RetrievedChunk]:
+    def retrieve(self, query: str, top_k: int | None = None, section_filter: str = "") -> list[RetrievedChunk]:
         """
         执行 LightRAG 双极检索，返回去重后的 RetrievedChunk 列表。
 
         Args:
-            query:  用户查询字符串。
-            top_k:  返回上限（None 时使用初始化时的 self.top_k）。
+            query:          用户查询字符串。
+            top_k:          返回上限（None 时使用初始化时的 self.top_k）。
+            section_filter: 章节类型过滤（如 "method"、"abstract"），空字符串表示不过滤。
+                            LightRAG 的 Low-Level（GraphRetriever）和 High-Level（关系检索）
+                            结果均无 section_type 语义，后过滤仅用于安全兜底。
 
         Returns:
             去重后的 RetrievedChunk 列表，长度 ≤ top_k。
@@ -131,7 +134,18 @@ class LightRAGDualRetriever:
         except Exception as exc:
             logger.warning("LightRAG one-hop 扩展失败: %s", exc)
 
-        return self._merge_and_deduplicate(low_chunks, high_chunks, expanded_chunks, k)
+        chunks = self._merge_and_deduplicate(
+            low_chunks, high_chunks, expanded_chunks,
+            # section_filter 时扩大 merge 候选池，过滤后再裁至 k
+            k * 3 if section_filter else k,
+        )
+
+        # LightRAG 结果（entity/relation chunk）的 section_type 与文本章节类型不完全对应，
+        # 此处为兼容性兜底过滤；有 section_filter 时结果大概率为空（详见文档说明）。
+        if section_filter:
+            chunks = [c for c in chunks if getattr(c, "section_type", "") == section_filter]
+
+        return chunks[:k]
 
     # ── 辅助方法 ─────────────────────────────────────────────────────────────
 

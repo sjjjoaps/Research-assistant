@@ -162,10 +162,11 @@ def _do_retrieve(
             mode = _auto_select_mode(query)
             logger.debug("auto 模式 → 启发式选择: %s", mode)
 
-    # 判断是否存在时间约束，存在时扩大召回量
+    # 判断是否需要扩大召回量：时间约束或 section_filter 均会导致候选被过滤，需提前扩容
     from src.retrieval.time_filter import extract_time_constraint
     has_time = (year_from != 0 or year_to != 0) or bool(extract_time_constraint(query))
-    fetch_k = top_k * 4 if has_time else top_k
+    has_filter = bool(section_filter)
+    fetch_k = top_k * 4 if (has_time or has_filter) else top_k
 
     if mode == "dual":
         # Phase 9-1: LightRAG 双极检索（Low-Level + High-Level + one-hop 扩展）
@@ -173,34 +174,34 @@ def _do_retrieve(
         from src.retrieval.lightrag_retriever import LightRAGDualRetriever
         retriever = LightRAGDualRetriever(top_k=fetch_k)
         try:
-            chunks = retriever.retrieve(query, top_k=fetch_k)
+            chunks = retriever.retrieve(query, top_k=fetch_k, section_filter=section_filter)
         finally:
             retriever.close()
     elif mode == "local":
         from src.retrieval.local_retriever import LocalRetriever
         retriever = LocalRetriever(top_k=fetch_k)
         try:
-            chunks = retriever.retrieve(query)
+            chunks = retriever.retrieve(query, section_filter=section_filter)
         finally:
             retriever.close()
     elif mode == "global":
         from src.retrieval.global_retriever import GlobalRetriever
         retriever = GlobalRetriever(top_k=fetch_k)
         try:
-            chunks = retriever.retrieve(query)
+            chunks = retriever.retrieve(query, section_filter=section_filter)
         finally:
             retriever.close()
     elif mode == "mix":
         from src.retrieval.mix_retriever import MixRetriever
         retriever = MixRetriever(top_k=fetch_k)
         try:
-            chunks = retriever.retrieve(query)
+            chunks = retriever.retrieve(query, section_filter=section_filter)
         finally:
             retriever.close()
     elif mode == "hybrid":
         from src.hybrid_retriever import HybridRetriever
         retriever = HybridRetriever(top_k=fetch_k)
-        chunks = retriever.retrieve(query)
+        chunks = retriever.retrieve(query, section_filter=section_filter)
     elif mode == "semantic":
         from src.retriever import SemanticRetriever
         retriever = SemanticRetriever(top_k=fetch_k)
@@ -217,10 +218,12 @@ def _do_retrieve(
         logger.warning("未知 mode=%r，fallback 到 semantic", mode)
         from src.retriever import SemanticRetriever
         retriever = SemanticRetriever(top_k=fetch_k)
-        chunks = retriever.retrieve(query)
+        sf = section_filter if section_filter else None
+        chunks = retriever.retrieve(query, section_type=sf)
         mode = "semantic"   # 统一用 mode 变量，后续记录时保持一致
 
-    # section_filter 后过滤（除 semantic 外，其余检索器不原生支持）
+    # Phase 10-2: 各检索器已在内部应用 section_filter（原生或后过滤），此处保留安全兜底
+    # 仅 fallback 路径或未来新增检索器未处理时才会过滤到结果
     if section_filter:
         chunks = [c for c in chunks if getattr(c, "section_type", "") == section_filter]
 
