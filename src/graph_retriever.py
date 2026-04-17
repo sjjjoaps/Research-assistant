@@ -68,7 +68,8 @@ class GraphRetriever:
         返回匹配到的 chunk 信息列表（去重，按匹配次数排序）。
 
         Returns list of dicts:
-          {chunk_id, content, chunk_index, file_path, matched_entity_names, hit_count}
+          {chunk_id, content, chunk_index, file_path, matched_entity_names,
+           matched_entity_ids, hit_count}
         """
         if not keywords:
             return []
@@ -86,6 +87,7 @@ class GraphRetriever:
             c.chunk_index AS chunk_index,
             c.file_path   AS file_path,
             collect(e.name) AS matched_entity_names,
+            collect(e.id)   AS matched_entity_ids,
             count(e)      AS hit_count
         ORDER BY hit_count DESC
         LIMIT $limit
@@ -142,11 +144,16 @@ class GraphRetriever:
                     unique_neighbors = list(dict.fromkeys(neighbor_names))  # 保序去重
                     content = content + f"\n[相关实体: {', '.join(unique_neighbors)}]"
 
+            # 取第一个匹配实体 ID，用于 LightRAG one-hop 扩展（entity_id 链路）
+            matched_ids: list = row.get("matched_entity_ids") or []
+            primary_entity_id = matched_ids[0] if matched_ids else ""
+
             results.append(
                 RetrievedChunk(
                     content=content,
                     file_path=str(row.get("file_path") or "unknown"),
                     chunk_index=int(row.get("chunk_index") or -1),
+                    entity_id=str(primary_entity_id),
                 )
             )
 

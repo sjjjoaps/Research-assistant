@@ -1,5 +1,5 @@
 """
-七个核心工具的定义与注册（Phase 8-3）。
+七个核心工具的定义与注册（Phase 9-1）。
 
 将现有 Agent 和检索器封装为 LLM 可调用的 @tool，对应 claw-code 的
 `load_tool_snapshot()` + `@lru_cache` 模式：
@@ -8,7 +8,7 @@
 - 所有工具均返回格式化的 Markdown 字符串，供 LLM 直接读取并引用
 
 工具清单：
-    1. retrieve_knowledge        — 知识库多模式检索
+    1. retrieve_knowledge        — 知识库多模式检索（Phase 9-1 新增 dual 双极检索模式）
     2. deep_research             — 多步深度研究报告
     3. generate_research_ideas   — 研究 Idea 生成
     4. list_documents            — 文献清单查询
@@ -88,6 +88,7 @@ def retrieve_knowledge(
 
     【mode 参数选择指南】
     - auto: 系统自动判断（推荐，适合大多数情况）
+    - dual: LightRAG 双极检索，Low-Level 实体精确 + High-Level 关系宏观 + one-hop 扩展
     - local: 适合包含具体实体名/方法名/数据集名的问题
     - global: 适合询问宏观趋势、综述、跨文献比较的问题
     - mix: 适合复杂的综合性问题
@@ -127,7 +128,16 @@ def _do_retrieve(
         mode = _auto_select_mode(query)
         logger.debug("auto 模式选择: %s", mode)
 
-    if mode == "local":
+    if mode == "dual":
+        # Phase 9-1: LightRAG 双极检索（Low-Level + High-Level + one-hop 扩展）
+        # try/finally 保证 GraphRetriever / GraphStore 连接在异常时也能释放
+        from src.retrieval.lightrag_retriever import LightRAGDualRetriever
+        retriever = LightRAGDualRetriever(top_k=top_k)
+        try:
+            chunks = retriever.retrieve(query, top_k=top_k)
+        finally:
+            retriever.close()
+    elif mode == "local":
         from src.retrieval.local_retriever import LocalRetriever
         retriever = LocalRetriever(top_k=top_k)
         chunks = retriever.retrieve(query)
@@ -190,8 +200,15 @@ def _apply_year_filter(chunks: list, year_from: int, year_to: int) -> list:
 
 def _auto_select_mode(query: str) -> str:
     """
-    根据问题特征自动选择检索模式（复用 KeywordExtractor）。
-    Phase 9-1 会将此逻辑迁移到 src/retrieval/auto_selector.py。
+    Phase 9-1: 基于 LightRAG 双极关键词自动选择检索模式。
+
+    路由规则（对应 LightRAG §3.2 Dual-Level Retrieval Paradigm）：
+        has_ll ∧ has_hl → "dual"   双极检索（Low-Level + High-Level + one-hop 扩展）
+        has_ll only     → "local"  Local 检索（实体精确）
+        has_hl only     → "global" Global 检索（关系宏观）
+        neither         → "mix"    Mix 检索（默认综合）
+
+    时间词优先规则：含时间词的查询直接路由到 "mix"，避免时效性问题。
     """
     try:
         import src.agents.tool_registry as _m
@@ -203,18 +220,23 @@ def _auto_select_mode(query: str) -> str:
         hl_count = len(getattr(result, "hl_keywords", []))
         ll_count = len(getattr(result, "ll_keywords", []))
 
-        # 含时间词 → mix
+        # 含时间词 → mix（时效性查询不适合图谱精确匹配）
         time_words = ["最新", "最近", "近期", "近年", "latest", "recent",
                       "2023", "2024", "2025", "2026"]
         if any(w in query for w in time_words):
             return "mix"
 
-        if hl_count > ll_count * 1.5 and hl_count >= 2:
-            return "global"     # 宏观趋势/综述
-        elif ll_count >= 1:
-            return "local"      # 具体实体/方法
+        has_ll = ll_count >= 1
+        has_hl = hl_count >= 1
+
+        if has_ll and has_hl:
+            return "dual"    # LightRAG 双极检索
+        elif has_ll:
+            return "local"   # 具体实体/方法
+        elif has_hl:
+            return "global"  # 宏观趋势/综述
         else:
-            return "mix"        # 默认综合
+            return "mix"     # 默认综合
     except Exception as exc:
         logger.warning("auto_select_mode 失败，fallback 到 mix: %s", exc)
         return "mix"

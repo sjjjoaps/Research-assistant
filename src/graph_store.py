@@ -24,6 +24,10 @@ Phase 3.3 新增：
 Phase 5.2 新增：
 - get_graph_stats            — 查询图谱节点/关系统计
 - get_subgraph               — 查询可视化子图数据
+
+Phase 9-1 新增（LightRAG 双极检索支持）：
+- search_by_relations        — 按 hl_keywords 匹配关系描述（High-Level 召回）
+- get_one_hop_neighbors      — 获取给定实体集合的一跳邻居（one-hop 扩展）
 """
 from __future__ import annotations
 
@@ -717,3 +721,77 @@ class GraphStore:
         """
         with self.driver.session() as session:
             session.run(query, file_path=file_path)
+
+    # ------------------------------------------------------------------
+    # Phase 9-1 — LightRAG 双极检索支持
+    # ------------------------------------------------------------------
+
+    def search_by_relations(self, keywords: list[str], k: int = 5) -> list[dict]:
+        """High-Level 检索：按关键词匹配关系描述，返回关系及关联实体信息。
+
+        用于 LightRAG 双极检索的高层（Abstract）查询路径，
+        匹配 RELATES_TO 关系的 description 字段，召回宏观语义关联。
+
+        使用参数化 UNWIND 查询，不拼接关键词字符串，防止注入。
+        ORDER BY score DESC 保证结果稳定排序（命中关键词越多排越前）。
+
+        Args:
+            keywords: 高层关键词列表（由 KeywordExtractor 提取的 hl_keywords）。
+            k: 返回的最大关系数量。
+
+        Returns:
+            关系信息列表，每项包含：source_name, target_name, relation_type,
+            description, source_id, target_id。
+        """
+        if not keywords:
+            return []
+
+        # 使用 UNWIND 参数化，每个关键词单独做 CONTAINS 匹配，
+        # 对同一关系累计命中次数作为排序依据，避免 f-string 注入。
+        query = """
+        UNWIND $keywords AS kw
+        MATCH (s:Entity)-[r:RELATES_TO]->(t:Entity)
+        WHERE toLower(coalesce(r.description, '')) CONTAINS toLower(kw)
+        WITH s, r, t, count(kw) AS score
+        RETURN s.id         AS source_id,
+               s.name       AS source_name,
+               t.id         AS target_id,
+               t.name       AS target_name,
+               r.relation_type AS relation_type,
+               r.description   AS description,
+               score
+        ORDER BY score DESC, s.name
+        LIMIT $k
+        """
+        with self.driver.session() as session:
+            result = session.run(query, keywords=list(keywords[:8]), k=k)
+            return [dict(record) for record in result]
+
+    def get_one_hop_neighbors(self, entity_ids: set[str]) -> list[dict]:
+        """LightRAG §3.2 高阶关联扩展：获取给定实体集合的一跳邻居实体信息。
+
+        对应 LightRAG 论文中的 one-hop neighbor expansion：
+            {v_i | v_i ∈ V ∧ (v_i ∈ N_v ∨ v_i ∈ N_e)}
+
+        Args:
+            entity_ids: 起始实体 ID 集合。
+
+        Returns:
+            邻居实体信息列表，每项包含：entity_id, name, description, relation_type。
+        """
+        if not entity_ids:
+            return []
+
+        query = """
+        MATCH (seed:Entity)-[r:RELATES_TO]-(neighbor:Entity)
+        WHERE seed.id IN $ids AND NOT neighbor.id IN $ids
+        RETURN DISTINCT
+            neighbor.id AS entity_id,
+            neighbor.name AS name,
+            coalesce(neighbor.description, '') AS description,
+            coalesce(r.relation_type, '') AS relation_type
+        LIMIT 50
+        """
+        with self.driver.session() as session:
+            result = session.run(query, ids=list(entity_ids))
+            return [dict(record) for record in result]

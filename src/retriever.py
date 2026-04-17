@@ -16,6 +16,7 @@ class RetrievedChunk:
     file_path: str
     chunk_index: int
     section_type: str = "unknown"
+    entity_id: str = ""   # Phase 9-1: LightRAG 双极检索 one-hop 扩展使用
 
 
 class SemanticRetriever:
