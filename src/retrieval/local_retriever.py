@@ -13,9 +13,9 @@ Phase 10-2 Review 修复：section_filter 非空时，融合候选池扩大到 t
 """
 from __future__ import annotations
 
-from src.graph_retriever import GraphRetriever
+from src.retrieval.graph_retriever import GraphRetriever
 from src.retrieval.fusion import fuse_ranked_lists
-from src.retriever import RetrievedChunk, SemanticRetriever
+from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
 
 _FILTER_EXPAND = 3   # section_filter 时扩大候选池的倍数
 

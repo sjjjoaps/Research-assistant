@@ -63,7 +63,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from src.config import settings
+from src.infrastructure.config import settings
 from src.agents.prompt_loader import load_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -570,7 +570,7 @@ class SessionManager:
           文件不存在时使用内置 fallback。
         - temperature=0.0 保证摘要确定性。
         """
-        from src.llm_client import get_llm
+        from src.infrastructure.llm_client import get_llm
 
         history_text = self._build_history_text(turns)
         prompt = _COMPACT_TEMPLATE.replace("{history}", history_text)

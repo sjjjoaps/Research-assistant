@@ -17,7 +17,7 @@ from functools import lru_cache
 
 import requests
 
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ def get_reranker() -> APIReranker | None:
     当 RERANKER_ENABLED=false 或 api_url 为空时返回 None，
     调用方通过 `if reranker:` 判断是否启用，无需感知配置细节。
     """
-    from src.config import settings
+    from src.infrastructure.config import settings
 
     if not settings.reranker_enabled:
         return None

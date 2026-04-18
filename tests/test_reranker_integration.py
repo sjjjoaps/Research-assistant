@@ -17,7 +17,7 @@ import requests
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 from src.retrieval.reranker import get_reranker, APIReranker
 
 
@@ -42,7 +42,7 @@ def _mock_reranker(order: list[int], top_n: int = 3) -> MagicMock:
 
 def test_hybrid_reranker_disabled():
     """RERANKER_ENABLED=false 时 HybridRetriever 返回 RRF 原始顺序，数量 == top_k。"""
-    from src.hybrid_retriever import HybridRetriever
+    from src.retrieval.hybrid_retriever import HybridRetriever
 
     chunks = [_chunk(f"doc{i}", i) for i in range(5)]
     retriever = HybridRetriever(top_k=3)
@@ -54,9 +54,9 @@ def test_hybrid_reranker_disabled():
     mock_bm25.retrieve.return_value = chunks[1:]
 
     get_reranker.cache_clear()
-    with patch("src.hybrid_retriever.SemanticRetriever", return_value=mock_sem_instance), \
+    with patch("src.retrieval.hybrid_retriever.SemanticRetriever", return_value=mock_sem_instance), \
          patch.object(retriever, "bm25_retriever", mock_bm25), \
-         patch("src.hybrid_retriever.get_reranker", return_value=None):
+         patch("src.retrieval.hybrid_retriever.get_reranker", return_value=None):
         result = retriever.retrieve("query")
 
     # 修正 Finding 4：断言数量和首个元素内容
@@ -67,7 +67,7 @@ def test_hybrid_reranker_disabled():
 
 def test_hybrid_reranker_enabled():
     """RERANKER_ENABLED=true 时 HybridRetriever 结果经 Reranker 重排，数量 <= top_k。"""
-    from src.hybrid_retriever import HybridRetriever
+    from src.retrieval.hybrid_retriever import HybridRetriever
 
     chunks = [_chunk(f"doc{i}", i) for i in range(5)]
     retriever = HybridRetriever(top_k=3)
@@ -81,9 +81,9 @@ def test_hybrid_reranker_enabled():
     mock_reranker = _mock_reranker(order=[3, 2, 1, 0], top_n=3)
 
     get_reranker.cache_clear()
-    with patch("src.hybrid_retriever.SemanticRetriever", return_value=mock_sem_instance), \
+    with patch("src.retrieval.hybrid_retriever.SemanticRetriever", return_value=mock_sem_instance), \
          patch.object(retriever, "bm25_retriever", mock_bm25), \
-         patch("src.hybrid_retriever.get_reranker", return_value=mock_reranker):
+         patch("src.retrieval.hybrid_retriever.get_reranker", return_value=mock_reranker):
         result = retriever.retrieve("query")
 
     assert mock_reranker.rerank.called, "Reranker 未被调用"
@@ -94,7 +94,7 @@ def test_hybrid_reranker_enabled():
 
 def test_hybrid_reranker_timeout_fallback():
     """Reranker API 超时时 HybridRetriever 降级，返回数量和首元素正确。"""
-    from src.hybrid_retriever import HybridRetriever
+    from src.retrieval.hybrid_retriever import HybridRetriever
 
     chunks = [_chunk(f"doc{i}", i) for i in range(5)]
     retriever = HybridRetriever(top_k=2)
@@ -108,9 +108,9 @@ def test_hybrid_reranker_timeout_fallback():
                                 top_n=2, timeout=1)
 
     get_reranker.cache_clear()
-    with patch("src.hybrid_retriever.SemanticRetriever", return_value=mock_sem_instance), \
+    with patch("src.retrieval.hybrid_retriever.SemanticRetriever", return_value=mock_sem_instance), \
          patch.object(retriever, "bm25_retriever", mock_bm25), \
-         patch("src.hybrid_retriever.get_reranker", return_value=real_reranker), \
+         patch("src.retrieval.hybrid_retriever.get_reranker", return_value=real_reranker), \
          patch("requests.post", side_effect=requests.exceptions.Timeout("timeout")):
         result = retriever.retrieve("query")
 

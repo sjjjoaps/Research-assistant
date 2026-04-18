@@ -60,7 +60,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from api.schemas import GraphStatsResponse, GraphSubgraphResponse
-from src.graph_store import GraphStore
+from src.storage.graph_store import GraphStore
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 

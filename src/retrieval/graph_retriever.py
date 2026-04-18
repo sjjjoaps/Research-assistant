@@ -13,8 +13,8 @@ Phase 4.1 变更：
 """
 import re
 
-from src.config import settings
-from src.retriever import RetrievedChunk
+from src.infrastructure.config import settings
+from src.retrieval.retriever import RetrievedChunk
 from src.retrieval.keyword_extractor import KeywordExtractor
 
 from neo4j import GraphDatabase

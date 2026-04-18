@@ -20,7 +20,7 @@ from typing import Optional
 from sqlalchemy import String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 
 def generate_chunk_id(doc_id: str, content_hash: str, occurrence_index: int = 0) -> str:

@@ -40,12 +40,12 @@ logger = logging.getLogger(__name__)
 # 若外部服务（Neo4j / FAISS）未启动，导入本模块不会失败（import 在函数内部执行）。
 # 以下别名仅供测试 patch，不在业务代码中直接使用。
 try:
-    from src.database import MetadataDatabase          # noqa: F401
+    from src.storage.database import MetadataDatabase          # noqa: F401
 except Exception:
     MetadataDatabase = None  # type: ignore[assignment,misc]
 
 try:
-    from src.graph_store import GraphStore              # noqa: F401
+    from src.storage.graph_store import GraphStore              # noqa: F401
 except Exception:
     GraphStore = None  # type: ignore[assignment,misc]
 
@@ -144,7 +144,7 @@ def _do_retrieve(
       - 检索完成后异步调用 record_strategy_result() 记录本次策略效果
     """
     # Phase 9-5: 分类问题类型，供长期记忆记录和查询使用
-    from src.core.long_term_memory import LongTermMemory, classify_question_type
+    from src.infrastructure.long_term_memory import LongTermMemory, classify_question_type
     ltm = LongTermMemory.get_instance()
     question_type = classify_question_type(query)
 
@@ -199,11 +199,11 @@ def _do_retrieve(
         finally:
             retriever.close()
     elif mode == "hybrid":
-        from src.hybrid_retriever import HybridRetriever
+        from src.retrieval.hybrid_retriever import HybridRetriever
         retriever = HybridRetriever(top_k=fetch_k)
         chunks = retriever.retrieve(query, section_filter=section_filter)
     elif mode == "semantic":
-        from src.retriever import SemanticRetriever
+        from src.retrieval.retriever import SemanticRetriever
         retriever = SemanticRetriever(top_k=fetch_k)
         sf = section_filter if section_filter else None
         chunks = retriever.retrieve(query, section_type=sf)
@@ -216,7 +216,7 @@ def _do_retrieve(
     else:
         # fallback: semantic；effective_mode 记录为 "semantic" 避免非法 mode 污染（[7]）
         logger.warning("未知 mode=%r，fallback 到 semantic", mode)
-        from src.retriever import SemanticRetriever
+        from src.retrieval.retriever import SemanticRetriever
         retriever = SemanticRetriever(top_k=fetch_k)
         sf = section_filter if section_filter else None
         chunks = retriever.retrieve(query, section_type=sf)
@@ -479,7 +479,7 @@ def list_documents(keyword: str = "", limit: int = 20) -> str:
         import src.agents.tool_registry as _m
         _DB = _m.MetadataDatabase
         if _DB is None:
-            from src.database import MetadataDatabase as _DB
+            from src.storage.database import MetadataDatabase as _DB
 
         db = _DB()
         all_docs = db.list_documents()
@@ -540,7 +540,7 @@ def get_document_metadata(doc_title_or_id: str) -> str:
         import src.agents.tool_registry as _m
         _DB = _m.MetadataDatabase
         if _DB is None:
-            from src.database import MetadataDatabase as _DB
+            from src.storage.database import MetadataDatabase as _DB
 
         db = _DB()
 
@@ -608,7 +608,7 @@ def search_by_entity(entity_name: str, relation_type: str = "") -> str:
         import src.agents.tool_registry as _m
         _GS = _m.GraphStore
         if _GS is None:
-            from src.graph_store import GraphStore as _GS
+            from src.storage.graph_store import GraphStore as _GS
 
         gs   = _GS()
         subgraph = gs.get_subgraph(
@@ -670,10 +670,10 @@ def get_knowledge_graph_stats() -> str:
         import src.agents.tool_registry as _m
         _GS = _m.GraphStore
         if _GS is None:
-            from src.graph_store import GraphStore as _GS
+            from src.storage.graph_store import GraphStore as _GS
         _DB = _m.MetadataDatabase
         if _DB is None:
-            from src.database import MetadataDatabase as _DB
+            from src.storage.database import MetadataDatabase as _DB
 
         gs    = _GS()
         stats = gs.get_graph_stats()
@@ -739,7 +739,7 @@ def save_user_memory(
         memory_type = "preference"
 
     try:
-        from src.core.long_term_memory import LongTermMemory, _slugify
+        from src.infrastructure.long_term_memory import LongTermMemory, _slugify
         ltm  = LongTermMemory.get_instance()
         slug = _slugify(title)
 

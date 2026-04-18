@@ -17,10 +17,10 @@ Phase 10-2：retrieve() 新增 section_filter 参数（安全兜底）。
 """
 from __future__ import annotations
 
-from src.graph_retriever import GraphRetriever
+from src.retrieval.graph_retriever import GraphRetriever
 from src.retrieval.fusion import fuse_ranked_lists
 from src.retrieval.keyword_extractor import KeywordExtractor
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 from src.storage.relation_vector_store import RelationVectorStore
 
 
@@ -39,7 +39,7 @@ class GlobalRetriever:
         if self._year_cache is not None:
             return self._year_cache
         try:
-            from src.database import MetadataDatabase
+            from src.storage.database import MetadataDatabase
             db = MetadataDatabase()
             docs = db.list_documents()
             self._year_cache = {

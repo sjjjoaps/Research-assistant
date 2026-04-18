@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 
 
 def test_local_retriever_fuses_graph_and_semantic(monkeypatch):
@@ -16,7 +16,7 @@ def test_local_retriever_fuses_graph_and_semantic(monkeypatch):
     monkeypatch.setattr(
         "src.retrieval.local_retriever.SemanticRetriever",
         lambda top_k: SimpleNamespace(
-            retrieve=lambda query: [
+            retrieve=lambda query, **_: [
                 RetrievedChunk(content="semantic evidence", file_path="b.pdf", chunk_index=2)
             ]
         ),
@@ -80,20 +80,20 @@ def test_mix_retriever_fuses_semantic_local_global(monkeypatch):
     monkeypatch.setattr(
         "src.retrieval.mix_retriever.SemanticRetriever",
         lambda top_k: SimpleNamespace(
-            retrieve=lambda query: [RetrievedChunk(content="semantic", file_path="s.pdf", chunk_index=1)]
+            retrieve=lambda query, **_: [RetrievedChunk(content="semantic", file_path="s.pdf", chunk_index=1)]
         ),
     )
     monkeypatch.setattr(
         "src.retrieval.mix_retriever.LocalRetriever",
         lambda top_k: SimpleNamespace(
-            retrieve=lambda query: [RetrievedChunk(content="local", file_path="l.pdf", chunk_index=2)],
+            retrieve=lambda query, **_: [RetrievedChunk(content="local", file_path="l.pdf", chunk_index=2)],
             close=lambda: None,
         ),
     )
     monkeypatch.setattr(
         "src.retrieval.mix_retriever.GlobalRetriever",
         lambda top_k: SimpleNamespace(
-            retrieve=lambda query: [RetrievedChunk(content="global", file_path="g.pdf", chunk_index=3)],
+            retrieve=lambda query, **_: [RetrievedChunk(content="global", file_path="g.pdf", chunk_index=3)],
             close=lambda: None,
         ),
     )

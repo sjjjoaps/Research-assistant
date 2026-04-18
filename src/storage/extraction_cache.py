@@ -16,7 +16,7 @@ from typing import Any, Optional
 from sqlalchemy import String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 
 def compute_file_hash(file_path: str | Path) -> str:

@@ -19,7 +19,7 @@ from src.storage.chunk_tracker import ChunkTracker
 
 def _build_pipeline(tmp_path: Path):
     """构造带真实 status_store / chunk_tracker 的 pipeline，其余 mock。"""
-    from src.ingestion_pipeline import IngestionPipeline
+    from src.workflows.ingestion_pipeline import IngestionPipeline
 
     pipeline = IngestionPipeline.__new__(IngestionPipeline)
     pipeline._enable_entity_extraction = False
@@ -49,7 +49,7 @@ class TestGraphStoreLocking:
 
     def test_entity_lock_serializes_same_entity(self):
         """同一 entity_id 的并发 upsert 应被串行化，不产生竞态。"""
-        from src.graph_store import GraphStore
+        from src.storage.graph_store import GraphStore
 
         store = GraphStore.__new__(GraphStore)
         store.__init__.__func__  # 不调用真实 __init__（需要 Neo4j 连接）
@@ -70,7 +70,7 @@ class TestGraphStoreLocking:
 
     def test_different_entities_get_different_locks(self):
         """不同 entity_id 应获得不同的 Lock，互不阻塞。"""
-        from src.graph_store import GraphStore
+        from src.storage.graph_store import GraphStore
         import threading
 
         store = GraphStore.__new__(GraphStore)
@@ -86,7 +86,7 @@ class TestGraphStoreLocking:
 
     def test_relation_lock_serializes_same_relation(self):
         """同一关系三元组的并发 upsert 应被串行化。"""
-        from src.graph_store import GraphStore
+        from src.storage.graph_store import GraphStore
         import threading
 
         store = GraphStore.__new__(GraphStore)
@@ -103,7 +103,7 @@ class TestGraphStoreLocking:
 
     def test_concurrent_entity_lock_acquisition(self):
         """多线程并发获取同一实体锁时不产生竞态，执行顺序被串行化。"""
-        from src.graph_store import GraphStore
+        from src.storage.graph_store import GraphStore
         import threading
 
         store = GraphStore.__new__(GraphStore)
@@ -139,7 +139,7 @@ class TestBatchIngestResult:
     """测试 BatchIngestResult 数据结构。"""
 
     def test_batch_result_defaults(self):
-        from src.ingestion_pipeline import BatchIngestResult
+        from src.workflows.ingestion_pipeline import BatchIngestResult
 
         r = BatchIngestResult()
         assert r.total == 0
@@ -312,7 +312,7 @@ class TestVectorStoreLocking:
     def test_vector_store_has_builtin_lock(self):
         """VectorStore 实例应有内置 _lock 属性，类型为 threading.Lock 实例。"""
         import threading
-        from src.vector_store import VectorStore
+        from src.storage.vector_store import VectorStore
 
         store = VectorStore.__new__(VectorStore)
         store._store = None
@@ -326,7 +326,7 @@ class TestVectorStoreLocking:
     def test_concurrent_add_chunks_serialized_by_lock(self, tmp_path):
         """并发调用 add_chunks 时，内置锁保证写操作串行化，不产生竞态。"""
         import threading
-        from src.vector_store import VectorStore
+        from src.storage.vector_store import VectorStore
 
         store = VectorStore.__new__(VectorStore)
         store._store = None

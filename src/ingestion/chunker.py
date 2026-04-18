@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from src.document_parser import ParsedDocument
+from src.ingestion.document_parser import ParsedDocument
 from src.storage.chunk_tracker import compute_chunk_content_hash, generate_chunk_id
 
 

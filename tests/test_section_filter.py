@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 
 
 # ── 辅助工厂 ──────────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ def test_mix_retriever_section_filter_applies():
 
 def test_hybrid_retriever_section_filter_applies():
     """section_filter='abstract' 时，HybridRetriever 应只返回 abstract 类型的 chunk。"""
-    from src.hybrid_retriever import HybridRetriever
+    from src.retrieval.hybrid_retriever import HybridRetriever
 
     abs_chunk   = _chunk("摘要内容", "abstract",     file_path="paper.pdf", chunk_index=0)
     method_chunk = _chunk("方法内容", "method",      file_path="paper.pdf", chunk_index=1)
@@ -166,8 +166,8 @@ def test_hybrid_retriever_section_filter_applies():
     mock_bm25.retrieve.return_value = [abs_chunk, method_chunk]  # BM25 未过滤
     mock_bm25_cls = MagicMock(return_value=mock_bm25)
 
-    with patch("src.hybrid_retriever.SemanticRetriever", mock_sem_cls), \
-         patch("src.hybrid_retriever.BM25Retriever", mock_bm25_cls):
+    with patch("src.retrieval.hybrid_retriever.SemanticRetriever", mock_sem_cls), \
+         patch("src.retrieval.hybrid_retriever.BM25Retriever", mock_bm25_cls):
         retriever = HybridRetriever(top_k=10)
         chunks = retriever.retrieve("摘要问题", section_filter="abstract")
 
@@ -270,8 +270,8 @@ def test_do_retrieve_local_mode_passes_section_filter():
     # LongTermMemory 和 classify_question_type 通过局部 import 在 _do_retrieve 内加载，
     # 需要 patch 源模块路径（src.core.long_term_memory）
     with patch("src.retrieval.local_retriever.LocalRetriever", mock_local_cls), \
-         patch("src.core.long_term_memory.LongTermMemory", mock_ltm_module), \
-         patch("src.core.long_term_memory.classify_question_type", return_value="specific"):
+         patch("src.infrastructure.long_term_memory.LongTermMemory", mock_ltm_module), \
+         patch("src.infrastructure.long_term_memory.classify_question_type", return_value="specific"):
         _do_retrieve(
             query="方法论问题",
             mode="local",
@@ -352,8 +352,8 @@ def _run_do_retrieve(mode: str, retriever_cls_patch_path: str, mock_inst: MagicM
     from src.agents.tool_registry import _do_retrieve
     mock_ltm = _ltm_patch()
     with patch(retriever_cls_patch_path, mock_cls), \
-         patch("src.core.long_term_memory.LongTermMemory", mock_ltm), \
-         patch("src.core.long_term_memory.classify_question_type", return_value="specific"):
+         patch("src.infrastructure.long_term_memory.LongTermMemory", mock_ltm), \
+         patch("src.infrastructure.long_term_memory.classify_question_type", return_value="specific"):
         _do_retrieve(query="测试", mode=mode, top_k=5,
                      section_filter="method", year_from=0, year_to=0)
     return mock_inst.retrieve.call_args
@@ -380,7 +380,7 @@ def test_do_retrieve_hybrid_mode_passes_section_filter():
     mock_inst.retrieve.return_value = [method_chunk]
     mock_cls = MagicMock(return_value=mock_inst)
 
-    call_args = _run_do_retrieve("hybrid", "src.hybrid_retriever.HybridRetriever", mock_inst, mock_cls)
+    call_args = _run_do_retrieve("hybrid", "src.retrieval.hybrid_retriever.HybridRetriever", mock_inst, mock_cls)
     sf = call_args.kwargs.get("section_filter") or (call_args.args[1] if len(call_args.args) > 1 else None)
     assert sf == "method", f"hybrid 模式未传 section_filter，实际: {call_args}"
     print("[PASS] test_do_retrieve_hybrid_mode_passes_section_filter")
@@ -422,9 +422,9 @@ def test_do_retrieve_semantic_mode_passes_section_filter():
     mock_sem_cls = MagicMock(return_value=mock_sem_inst)
 
     mock_ltm = _ltm_patch()
-    with patch("src.retriever.SemanticRetriever", mock_sem_cls), \
-         patch("src.core.long_term_memory.LongTermMemory", mock_ltm), \
-         patch("src.core.long_term_memory.classify_question_type", return_value="specific"):
+    with patch("src.retrieval.retriever.SemanticRetriever", mock_sem_cls), \
+         patch("src.infrastructure.long_term_memory.LongTermMemory", mock_ltm), \
+         patch("src.infrastructure.long_term_memory.classify_question_type", return_value="specific"):
         _do_retrieve(query="摘要信息", mode="semantic", top_k=5,
                      section_filter="method", year_from=0, year_to=0)
 
@@ -445,8 +445,8 @@ def test_fetch_k_expands_when_section_filter_set():
 
     mock_ltm = _ltm_patch()
     with patch("src.retrieval.local_retriever.LocalRetriever", mock_cls), \
-         patch("src.core.long_term_memory.LongTermMemory", mock_ltm), \
-         patch("src.core.long_term_memory.classify_question_type", return_value="specific"):
+         patch("src.infrastructure.long_term_memory.LongTermMemory", mock_ltm), \
+         patch("src.infrastructure.long_term_memory.classify_question_type", return_value="specific"):
         _do_retrieve(query="测试", mode="local", top_k=5,
                      section_filter="method", year_from=0, year_to=0)
 

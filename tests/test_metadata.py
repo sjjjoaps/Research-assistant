@@ -12,8 +12,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import argparse
 
-from src.document_parser import DocumentParser
-from src.metadata_extractor import MetadataExtractor
+from src.ingestion.document_parser import DocumentParser
+from src.ingestion.metadata_extractor import MetadataExtractor
 
 
 def main() -> None:

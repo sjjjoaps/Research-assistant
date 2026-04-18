@@ -29,11 +29,11 @@ import logging
 import re
 from typing import Optional
 
-from src.document_parser import ParsedDocument
+from src.ingestion.document_parser import ParsedDocument
 from src.storage.chunk_tracker import compute_chunk_content_hash, generate_chunk_id
 
 # 复用 DocumentChunker 的 TextChunk 结构，保持一致性
-from src.chunker import TextChunk
+from src.ingestion.chunker import TextChunk
 
 logger = logging.getLogger(__name__)
 
@@ -388,6 +388,6 @@ class SectionChunker:
     ) -> list[TextChunk]:
         """Fallback：文档无章节信息或长度不一致时，委托给 DocumentChunker（[5]）。"""
         if self._fallback_chunker is None:
-            from src.chunker import DocumentChunker
+            from src.ingestion.chunker import DocumentChunker
             self._fallback_chunker = DocumentChunker()
         return self._fallback_chunker.chunk(document, doc_id=doc_id)

@@ -10,8 +10,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agents.prompt_loader import load_prompt_pair
-from src.document_parser import ParsedDocument
-from src.llm_client import get_llm
+from src.ingestion.document_parser import ParsedDocument
+from src.infrastructure.llm_client import get_llm
 
 
 # ── 元数据数据结构 ────────────────────────────────────────────────────────────

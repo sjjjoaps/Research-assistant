@@ -13,8 +13,8 @@ from sqlalchemy import Integer, String, Text, create_engine, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from src.config import settings
-from src.metadata_extractor import DocumentMetadata
+from src.infrastructure.config import settings
+from src.ingestion.metadata_extractor import DocumentMetadata
 
 
 class Base(DeclarativeBase):

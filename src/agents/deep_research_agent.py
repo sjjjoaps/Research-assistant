@@ -23,10 +23,10 @@ from pydantic import BaseModel, Field
 
 from src.agents.base_agent import BaseAgent
 from src.agents.prompt_loader import load_prompt_pair
-from src.llm_client import get_llm
-from src.retriever import RetrievedChunk
+from src.infrastructure.llm_client import get_llm
+from src.retrieval.retriever import RetrievedChunk
 from src.retrieval.keyword_extractor import KeywordExtractor
-from src.token_tracker import TokenUsage
+from src.infrastructure.token_tracker import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +96,10 @@ _REPORT_PROMPT = ChatPromptTemplate.from_messages(
 def _make_retriever(mode: RetrieverMode, top_k: int):
     """检索器工厂（与 QAAgent 保持一致）"""
     if mode == "hybrid":
-        from src.hybrid_retriever import HybridRetriever
+        from src.retrieval.hybrid_retriever import HybridRetriever
         return HybridRetriever(top_k=top_k, semantic_top_k=top_k * 2, bm25_top_k=top_k * 2)
     if mode == "graph":
-        from src.graph_retriever import GraphRetriever
+        from src.retrieval.graph_retriever import GraphRetriever
         return GraphRetriever(top_k=top_k, expand_entities=True)
     if mode == "local":
         from src.retrieval.local_retriever import LocalRetriever
@@ -110,7 +110,7 @@ def _make_retriever(mode: RetrieverMode, top_k: int):
     if mode == "mix":
         from src.retrieval.mix_retriever import MixRetriever
         return MixRetriever(top_k=top_k)
-    from src.retriever import SemanticRetriever
+    from src.retrieval.retriever import SemanticRetriever
     return SemanticRetriever(top_k=top_k)
 
 
@@ -217,7 +217,7 @@ class DeepResearchAgent(BaseAgent):
         if not self.use_community:
             return ""
         try:
-            from src.graph_store import GraphStore
+            from src.storage.graph_store import GraphStore
             graph_store = GraphStore()
             summaries = graph_store.get_community_summaries(limit=5)
             graph_store.close()

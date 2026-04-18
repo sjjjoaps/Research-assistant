@@ -6,8 +6,8 @@ import re
 
 from rank_bm25 import BM25Okapi
 
-from src.retriever import RetrievedChunk
-from src.vector_store import VectorStore
+from src.retrieval.retriever import RetrievedChunk
+from src.storage.vector_store import VectorStore
 
 
 class BM25Retriever:

@@ -15,11 +15,11 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import argparse
 
-from src.retriever import SemanticRetriever
-from src.bm25_retriever import BM25Retriever
-from src.hybrid_retriever import HybridRetriever
-from src.graph_retriever import GraphRetriever
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import SemanticRetriever
+from src.retrieval.bm25_retriever import BM25Retriever
+from src.retrieval.hybrid_retriever import HybridRetriever
+from src.retrieval.graph_retriever import GraphRetriever
+from src.retrieval.retriever import RetrievedChunk
 
 
 _SEPARATOR = "=" * 80

@@ -21,10 +21,10 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.base_agent import BaseAgent, Turn
 from src.agents.prompt_loader import load_prompt_pair
-from src.llm_client import get_llm
-from src.retriever import RetrievedChunk, SemanticRetriever
+from src.infrastructure.llm_client import get_llm
+from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
 from src.retrieval.keyword_extractor import KeywordExtractor
-from src.token_tracker import TokenUsage
+from src.infrastructure.token_tracker import TokenUsage
 
 RetrieverMode = Literal["semantic", "hybrid", "graph", "local", "global", "mix"]
 
@@ -38,10 +38,10 @@ _QA_AGENT_PROMPT = ChatPromptTemplate.from_messages(
 def _make_retriever(mode: RetrieverMode, top_k: int):
     """工厂函数：按模式创建对应检索器"""
     if mode == "hybrid":
-        from src.hybrid_retriever import HybridRetriever
+        from src.retrieval.hybrid_retriever import HybridRetriever
         return HybridRetriever(top_k=top_k, semantic_top_k=top_k * 2, bm25_top_k=top_k * 2)
     if mode == "graph":
-        from src.graph_retriever import GraphRetriever
+        from src.retrieval.graph_retriever import GraphRetriever
         return GraphRetriever(top_k=top_k, expand_entities=True)
     if mode == "local":
         from src.retrieval.local_retriever import LocalRetriever

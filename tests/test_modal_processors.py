@@ -19,8 +19,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.ingestion.modal_processors import ModalContent, ImageProcessor, TableProcessor
-from src.document_parser import ParsedDocument, DocumentParser
-from src.chunker import DocumentChunker
+from src.ingestion.document_parser import ParsedDocument, DocumentParser
+from src.ingestion.chunker import DocumentChunker
 
 
 # ── ModalContent ──────────────────────────────────────────────────────────────
@@ -117,7 +117,7 @@ class TestImageProcessor:
 
     def test_instantiation_does_not_init_llm(self):
         """实例化 ImageProcessor 时不应触发 LLM 初始化（懒初始化）。"""
-        with patch("src.llm_client.get_llm") as mock_get_llm:
+        with patch("src.infrastructure.llm_client.get_llm") as mock_get_llm:
             processor = ImageProcessor()
             mock_get_llm.assert_not_called()
             assert processor._llm is None
@@ -158,7 +158,7 @@ class TestTableProcessor:
 
     def test_instantiation_does_not_init_llm(self):
         """实例化 TableProcessor 时不应触发 LLM 初始化（懒初始化）。"""
-        with patch("src.llm_client.get_llm") as mock_get_llm:
+        with patch("src.infrastructure.llm_client.get_llm") as mock_get_llm:
             processor = TableProcessor()
             mock_get_llm.assert_not_called()
             assert processor._llm is None

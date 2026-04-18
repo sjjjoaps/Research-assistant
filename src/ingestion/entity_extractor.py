@@ -23,10 +23,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agents.prompt_loader import load_prompt_pair
-from src.chunker import TextChunk
-from src.graph_store import GraphStore
+from src.ingestion.chunker import TextChunk
+from src.storage.graph_store import GraphStore
 from src.ingestion.description_merger import DescriptionMerger
-from src.llm_client import get_llm
+from src.infrastructure.llm_client import get_llm
 from src.storage.relation_vector_store import RelationVectorRecord
 
 

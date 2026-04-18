@@ -18,7 +18,7 @@ from src.retrieval.fusion import fuse_ranked_lists
 from src.retrieval.global_retriever import GlobalRetriever
 from src.retrieval.local_retriever import LocalRetriever
 from src.retrieval.reranker import get_reranker
-from src.retriever import RetrievedChunk, SemanticRetriever
+from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
 
 _FILTER_EXPAND = 3   # section_filter 时扩大候选池的倍数
 

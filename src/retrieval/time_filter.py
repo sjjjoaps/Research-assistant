@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.retriever import RetrievedChunk
+    from src.retrieval.retriever import RetrievedChunk
 
 # 动态获取当前年份，不硬编码
 def _current_year() -> int:

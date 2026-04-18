@@ -4,7 +4,7 @@ Embedding 封装模块
 """
 from langchain_community.embeddings import DashScopeEmbeddings
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 
 class Embedder:

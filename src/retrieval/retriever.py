@@ -7,7 +7,7 @@ Phase 3.2 变更：
 """
 from dataclasses import dataclass
 
-from src.vector_store import VectorStore
+from src.storage.vector_store import VectorStore
 
 
 @dataclass

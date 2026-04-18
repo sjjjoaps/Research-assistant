@@ -11,8 +11,8 @@ import networkx as nx
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.prompt_loader import load_prompt_pair
-from src.graph_store import GraphStore
-from src.llm_client import get_llm
+from src.storage.graph_store import GraphStore
+from src.infrastructure.llm_client import get_llm
 
 
 _sys, _human = load_prompt_pair("community_summary")

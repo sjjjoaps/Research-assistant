@@ -111,8 +111,8 @@ class TestGraphStoreUpsertWithMerge(unittest.TestCase):
 
     def _make_graph_store(self):
         """构造一个 driver 被 mock 的 GraphStore。"""
-        with patch("src.graph_store.GraphDatabase"):
-            from src.graph_store import GraphStore
+        with patch("src.storage.graph_store.GraphDatabase"):
+            from src.storage.graph_store import GraphStore
             gs = GraphStore()
             gs.driver = MagicMock()
             return gs

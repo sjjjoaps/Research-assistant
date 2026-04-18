@@ -22,7 +22,7 @@ from typing import Optional
 from sqlalchemy import String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 # 合法状态集合
 VALID_STATUSES = frozenset({

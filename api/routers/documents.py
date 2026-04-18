@@ -23,9 +23,9 @@ from api.schemas import (
     IngestFileResult,
     IngestStartResponse,
 )
-from src.database import MetadataDatabase
-from src.graph_store import GraphStore
-from src.ingestion_pipeline import IngestionPipeline
+from src.storage.database import MetadataDatabase
+from src.storage.graph_store import GraphStore
+from src.workflows.ingestion_pipeline import IngestionPipeline
 from src.storage.document_status_store import DocumentStatus, DocumentStatusStore, generate_doc_id
 from src.storage.extraction_cache import compute_file_hash
 

@@ -6,8 +6,8 @@ GET  /community/list   — 读取已有社区摘要列表
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from src.community_detector import CommunityDetector
-from src.graph_store import GraphStore
+from src.ingestion.community_detector import CommunityDetector
+from src.storage.graph_store import GraphStore
 
 router = APIRouter(prefix="/community", tags=["community"])
 

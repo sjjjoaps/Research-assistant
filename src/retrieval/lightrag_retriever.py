@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class LightRAGDualRetriever:
 
     def _get_graph_retriever(self):
         if self._graph_retriever is None:
-            from src.graph_retriever import GraphRetriever
+            from src.retrieval.graph_retriever import GraphRetriever
             self._graph_retriever = GraphRetriever(
                 top_k=self.top_k * 2, expand_entities=True
             )
@@ -70,7 +70,7 @@ class LightRAGDualRetriever:
 
     def _get_graph_store(self):
         if self._graph_store is None:
-            from src.graph_store import GraphStore
+            from src.storage.graph_store import GraphStore
             self._graph_store = GraphStore()
         return self._graph_store
 

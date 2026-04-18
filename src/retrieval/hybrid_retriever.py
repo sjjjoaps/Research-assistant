@@ -11,9 +11,9 @@ Phase 10-2 Review 修复：section_filter 非空时不先截断 sorted_keys 再�
 
 P1-Step 3：RRF 融合后接入 Reranker 精排（RERANKER_ENABLED=true 时生效）。
 """
-from src.bm25_retriever import BM25Retriever
+from src.retrieval.bm25_retriever import BM25Retriever
 from src.retrieval.reranker import get_reranker
-from src.retriever import RetrievedChunk, SemanticRetriever
+from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
 
 
 _RRF_K = 60           # RRF 平滑常数，通常取 60

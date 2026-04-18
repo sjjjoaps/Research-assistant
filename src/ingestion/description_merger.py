@@ -19,7 +19,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.agents.prompt_loader import load_prompt_pair
-from src.llm_client import get_llm
+from src.infrastructure.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
 

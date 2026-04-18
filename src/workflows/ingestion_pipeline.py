@@ -40,20 +40,20 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 import threading
 
-from src.chunker import DocumentChunker
+from src.ingestion.chunker import DocumentChunker
 from src.ingestion.section_chunker import SectionChunker
-from src.config import settings
-from src.database import MetadataDatabase
-from src.document_parser import DocumentParser
-from src.entity_extractor import EntityExtractor
-from src.graph_store import GraphStore
+from src.infrastructure.config import settings
+from src.storage.database import MetadataDatabase
+from src.ingestion.document_parser import DocumentParser
+from src.ingestion.entity_extractor import EntityExtractor
+from src.storage.graph_store import GraphStore
 from src.ingestion.citation_extractor import CitationExtractor
-from src.metadata_extractor import MetadataExtractor
+from src.ingestion.metadata_extractor import MetadataExtractor
 from src.storage.chunk_tracker import ChunkTracker, compute_chunk_content_hash
 from src.storage.document_status_store import DocumentStatus, DocumentStatusStore, generate_doc_id
 from src.storage.extraction_cache import compute_file_hash
 from src.storage.relation_vector_store import RelationVectorStore
-from src.vector_store import VectorStore
+from src.storage.vector_store import VectorStore
 
 
 @dataclass

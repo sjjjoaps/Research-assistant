@@ -116,7 +116,7 @@ def _call_extractor_llm(user_input: str, ai_response: str) -> Optional[dict]:
         解析后的 dict（含 should_save 字段），或 None（调用/解析失败）
     """
     try:
-        from src.llm_client import get_llm
+        from src.infrastructure.llm_client import get_llm
 
         prompt  = _EXTRACTOR_TEMPLATE.replace("{user_input}", user_input).replace("{ai_response}", ai_response)
         llm     = get_llm(temperature=0.0)

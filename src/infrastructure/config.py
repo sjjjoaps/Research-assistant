@@ -7,8 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
 
-# 项目根目录
-ROOT_DIR = Path(__file__).parent.parent
+# 项目根目录（infrastructure/ 在 src/ 下，需上溯两级）
+ROOT_DIR = Path(__file__).parent.parent.parent
 
 
 class Settings(BaseSettings):

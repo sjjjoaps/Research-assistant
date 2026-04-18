@@ -22,9 +22,9 @@ from pathlib import Path
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 
-from src.chunker import TextChunk
-from src.config import settings
-from src.embedder import Embedder
+from src.ingestion.chunker import TextChunk
+from src.infrastructure.config import settings
+from src.infrastructure.embedder import Embedder
 
 
 class VectorStore:

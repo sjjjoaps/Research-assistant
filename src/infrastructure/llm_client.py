@@ -4,7 +4,7 @@ LLM 客户端封装
 """
 from langchain_openai import ChatOpenAI
 
-from src.config import settings
+from src.infrastructure.config import settings
 
 
 def get_llm(temperature: float = 0.0) -> ChatOpenAI:

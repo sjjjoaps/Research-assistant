@@ -175,7 +175,7 @@ class KeywordExtractor:
 
     def _get_llm(self):
         if self._llm is None:
-            from src.llm_client import get_llm
+            from src.infrastructure.llm_client import get_llm
 
             self._llm = get_llm(temperature=0.0)
         return self._llm

@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from api.routers import chat, community, documents, graph, research
 from api.routers import agent as agent_router_module   # Phase 8-6: MasterAgent SSE
 from api.schemas import HealthResponse
-from src.config import settings
+from src.infrastructure.config import settings
 
 app = FastAPI(
     title="学术文献知识库助手 API",

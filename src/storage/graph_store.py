@@ -36,9 +36,9 @@ from typing import TYPE_CHECKING
 
 from neo4j import GraphDatabase
 
-from src.chunker import TextChunk
-from src.config import settings
-from src.metadata_extractor import DocumentMetadata
+from src.ingestion.chunker import TextChunk
+from src.infrastructure.config import settings
+from src.ingestion.metadata_extractor import DocumentMetadata
 
 if TYPE_CHECKING:
     from src.ingestion.description_merger import DescriptionMerger

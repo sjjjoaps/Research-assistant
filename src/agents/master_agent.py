@@ -74,8 +74,8 @@ from src.agents.events import (
 from src.agents.prompt_loader import load_master_agent_system_prompt
 from src.agents.session_manager import SessionManager
 from src.agents.tool_registry import TOOL_DISPLAY_NAMES, build_tool_registry
-from src.config import settings
-from src.llm_client import get_llm
+from src.infrastructure.config import settings
+from src.infrastructure.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
 

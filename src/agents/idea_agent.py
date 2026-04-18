@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.deep_research_agent import ResearchReport
 from src.agents.prompt_loader import load_prompt_pair
-from src.llm_client import get_llm
+from src.infrastructure.llm_client import get_llm
 
 
 class IdeaReport(BaseModel):

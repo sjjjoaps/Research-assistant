@@ -20,7 +20,7 @@ import requests
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.retrieval.reranker import APIReranker, get_reranker
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 
 
 # ── 辅助工厂 ──────────────────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ def test_rerank_truncates_to_max_candidates():
 
 def test_get_reranker_disabled():
     get_reranker.cache_clear()
-    with patch("src.config.settings") as mock_settings:
+    with patch("src.infrastructure.config.settings") as mock_settings:
         mock_settings.reranker_enabled = False
         result = get_reranker()
     assert result is None
@@ -158,7 +158,7 @@ def test_get_reranker_disabled():
 
 def test_get_reranker_no_url():
     get_reranker.cache_clear()
-    with patch("src.config.settings") as mock_settings:
+    with patch("src.infrastructure.config.settings") as mock_settings:
         mock_settings.reranker_enabled = True
         mock_settings.reranker_api_url = ""
         result = get_reranker()

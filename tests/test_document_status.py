@@ -141,15 +141,15 @@ class TestIngestionPipelineStatus(unittest.TestCase):
 
     def _make_pipeline(self, tmp_dir: str):
         """构造一个所有重型依赖都被 mock 的 pipeline。"""
-        with patch("src.ingestion_pipeline.DocumentParser"), \
-             patch("src.ingestion_pipeline.DocumentChunker"), \
-             patch("src.ingestion_pipeline.MetadataExtractor"), \
-             patch("src.ingestion_pipeline.MetadataDatabase") as MockDB, \
-             patch("src.ingestion_pipeline.VectorStore"), \
-             patch("src.ingestion_pipeline.GraphStore"), \
-             patch("src.ingestion_pipeline.EntityExtractor"):
+        with patch("src.workflows.ingestion_pipeline.DocumentParser"), \
+             patch("src.workflows.ingestion_pipeline.DocumentChunker"), \
+             patch("src.workflows.ingestion_pipeline.MetadataExtractor"), \
+             patch("src.workflows.ingestion_pipeline.MetadataDatabase"), \
+             patch("src.workflows.ingestion_pipeline.VectorStore"), \
+             patch("src.workflows.ingestion_pipeline.GraphStore"), \
+             patch("src.workflows.ingestion_pipeline.EntityExtractor"):
 
-            from src.ingestion_pipeline import IngestionPipeline
+            from src.workflows.ingestion_pipeline import IngestionPipeline
 
             pipeline = IngestionPipeline(enable_entity_extraction=False)
 
@@ -159,6 +159,9 @@ class TestIngestionPipelineStatus(unittest.TestCase):
                 db_path=Path(tmp_dir) / "status.db"
             )
             pipeline.status_store.init_db()
+
+            # chunker 在 patch 上下文外仍是真实对象，替换为 MagicMock
+            pipeline.chunker = MagicMock()
 
             return pipeline
 

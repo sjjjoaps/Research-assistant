@@ -50,10 +50,10 @@ ALL_MERGED_PROMPTS = PAIR_PROMPTS + SYSTEM_ONLY_PROMPTS
 # ── 源码文件（需检查不含旧式加载） ────────────────────────────────────────────
 
 SOURCE_FILES = [
-    "src/community_detector.py",
-    "src/entity_extractor.py",
+    "src/ingestion/community_detector.py",
+    "src/ingestion/entity_extractor.py",
     "src/qa_chain.py",
-    "src/metadata_extractor.py",
+    "src/ingestion/metadata_extractor.py",
     "src/agents/deep_research_agent.py",
     "src/agents/idea_agent.py",
     "src/agents/qa_agent.py",

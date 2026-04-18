@@ -22,8 +22,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.ingestion.section_recognizer import SectionRecognizer, SECTION_TYPES
-from src.document_parser import ParsedDocument, DocumentParser
-from src.chunker import DocumentChunker
+from src.ingestion.document_parser import ParsedDocument, DocumentParser
+from src.ingestion.chunker import DocumentChunker
 from src.ingestion.modal_processors import ModalContent
 
 
@@ -178,7 +178,7 @@ class TestSectionRecognizerLLMFallback:
 
     def test_llm_lazy_init(self):
         """实例化 SectionRecognizer 不应触发 LLM 初始化。"""
-        with patch("src.llm_client.get_llm") as mock_get_llm:
+        with patch("src.infrastructure.llm_client.get_llm") as mock_get_llm:
             r = SectionRecognizer()
             mock_get_llm.assert_not_called()
             assert r._llm is None
@@ -401,7 +401,7 @@ class TestSectionTypeFilterable:
 
     def test_vector_store_similarity_search_section_filter(self):
         """VectorStore.similarity_search 的 section_type 参数应过滤结果。"""
-        from src.vector_store import VectorStore
+        from src.storage.vector_store import VectorStore
         from langchain_core.documents import Document
 
         store = VectorStore.__new__(VectorStore)
@@ -438,7 +438,7 @@ class TestSectionTypeFilterable:
 
     def test_semantic_retriever_passes_section_type_to_vector_store(self):
         """SemanticRetriever.retrieve 应将 section_type 透传给 VectorStore。"""
-        from src.retriever import SemanticRetriever
+        from src.retrieval.retriever import SemanticRetriever
         from langchain_core.documents import Document
 
         retriever = SemanticRetriever.__new__(SemanticRetriever)
