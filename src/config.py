@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     price_per_1k_prompt: float = Field(default=0.04, alias="PRICE_PER_1K_PROMPT")
     price_per_1k_completion: float = Field(default=0.12, alias="PRICE_PER_1K_COMPLETION")
 
+    # Reranker（P1-Step 2）
+    reranker_enabled: bool = Field(default=False, alias="RERANKER_ENABLED")
+    reranker_api_url: str = Field(default="", alias="RERANKER_API_URL")
+    reranker_api_key: str = Field(default="", alias="RERANKER_API_KEY")
+    reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
+    reranker_top_n: int = Field(default=5, alias="RERANKER_TOP_N")
+    reranker_timeout: int = Field(default=10, alias="RERANKER_TIMEOUT")
+    reranker_max_candidates: int = Field(default=50, alias="RERANKER_MAX_CANDIDATES")
+
 
 # 全局单例
 settings = Settings()
