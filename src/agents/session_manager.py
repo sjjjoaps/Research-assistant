@@ -64,15 +64,12 @@ from langchain_core.messages import (
 )
 
 from src.config import settings
+from src.agents.prompt_loader import load_system_prompt
 
 logger = logging.getLogger(__name__)
 
-# 压缩摘要 Prompt 文件路径（[6] 统一 Prompt 管理）
-_COMPACT_PROMPT_PATH = Path("prompt/session_compact_system.md")
-_COMPACT_PROMPT_FALLBACK = (
-    "请用简洁的中文摘要以下对话历史（不超过250字），"
-    "保留关键信息（用户的主要问题、找到的重要文献、得出的主要结论）：\n\n{history}"
-)
+# 压缩摘要 Prompt（统一 Prompt 管理）
+_COMPACT_TEMPLATE = load_system_prompt("session_compact")
 
 
 # ── 消息序列化 / 反序列化 ──────────────────────────────────────────────────────
@@ -575,14 +572,8 @@ class SessionManager:
         """
         from src.llm_client import get_llm
 
-        # 从文件加载 Prompt，文件不存在时使用 fallback
-        if _COMPACT_PROMPT_PATH.exists():
-            template = _COMPACT_PROMPT_PATH.read_text(encoding="utf-8")
-        else:
-            template = _COMPACT_PROMPT_FALLBACK
-
         history_text = self._build_history_text(turns)
-        prompt = template.replace("{history}", history_text)
+        prompt = _COMPACT_TEMPLATE.replace("{history}", history_text)
 
         llm    = get_llm(temperature=0.0)
         result = llm.invoke(prompt)

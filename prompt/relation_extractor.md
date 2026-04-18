@@ -34,19 +34,19 @@
 
 输出（JSON）：
 ```json
-{
+{{
   "entities": [
-    {"name": "GraphSAGE", "type": "Model", "description": "基于邻居采样的归纳图神经网络"},
-    {"name": "Reddit", "type": "Dataset", "description": "大规模社交网络节点分类数据集"},
-    {"name": "GCN", "type": "Model", "description": "图卷积网络"},
-    {"name": "节点分类", "type": "Task", "description": "图上的节点标签预测任务"},
-    {"name": "F1", "type": "Metric", "description": "分类评估指标"}
+    {{"name": "GraphSAGE", "type": "Model", "description": "基于邻居采样的归纳图神经网络"}},
+    {{"name": "Reddit", "type": "Dataset", "description": "大规模社交网络节点分类数据集"}},
+    {{"name": "GCN", "type": "Model", "description": "图卷积网络"}},
+    {{"name": "节点分类", "type": "Task", "description": "图上的节点标签预测任务"}},
+    {{"name": "F1", "type": "Metric", "description": "分类评估指标"}}
   ],
   "relations": [
-    {"source": "GraphSAGE", "relation": "EVALUATES_ON", "target": "Reddit", "description": "在 Reddit 数据集上进行节点分类评测"},
-    {"source": "GraphSAGE", "relation": "OUTPERFORMS", "target": "GCN", "description": "F1 超越 GCN 约 3%"}
+    {{"source": "GraphSAGE", "relation": "EVALUATES_ON", "target": "Reddit", "description": "在 Reddit 数据集上进行节点分类评测"}},
+    {{"source": "GraphSAGE", "relation": "OUTPERFORMS", "target": "GCN", "description": "F1 超越 GCN 约 3%"}}
   ]
-}
+}}
 ```
 
 ---

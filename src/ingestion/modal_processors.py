@@ -30,11 +30,12 @@ from dataclasses import dataclass
 
 from langchain_core.messages import HumanMessage
 
+from src.agents.prompt_loader import load_prompt_pair
+
 logger = logging.getLogger(__name__)
 
-
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+_image_sys, _image_human = load_prompt_pair("modal_image")
+_table_sys, _table_human = load_prompt_pair("modal_table")
 
 
 @dataclass
@@ -81,8 +82,8 @@ class ImageProcessor(BaseModalProcessor):
     LLM 采用懒初始化：首次调用 process() 时才创建，初始化失败时降级返回空描述。
     """
 
-    _SYSTEM_PROMPT = _load_prompt("modal_image_system.md")
-    _HUMAN_PROMPT = _load_prompt("modal_image_human.md")
+    _SYSTEM_PROMPT = _image_sys
+    _HUMAN_PROMPT = _image_human
 
     def __init__(self) -> None:
         self._llm = None  # 懒初始化，首次 process() 时创建
@@ -124,8 +125,8 @@ class TableProcessor(BaseModalProcessor):
     LLM 采用懒初始化：首次调用 process() 时才创建，初始化失败时降级返回空描述。
     """
 
-    _SYSTEM_PROMPT = _load_prompt("modal_table_system.md")
-    _HUMAN_PROMPT = _load_prompt("modal_table_human.md")
+    _SYSTEM_PROMPT = _table_sys
+    _HUMAN_PROMPT = _table_human
 
     def __init__(self) -> None:
         self._llm = None  # 懒初始化，首次 process() 时创建

@@ -15,13 +15,14 @@ Phase 4.1 变更：
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agents.base_agent import BaseAgent
+from src.agents.prompt_loader import load_prompt_pair
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk
 from src.retrieval.keyword_extractor import KeywordExtractor
@@ -72,29 +73,19 @@ class SubQuestionList(BaseModel):
 # Prompts
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
-
-
+_plan_sys, _plan_human = load_prompt_pair("deep_research_plan")
 _PLAN_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("deep_research_plan_system.md")),
-        ("human", "研究问题：{question}"),
-    ]
+    [("system", _plan_sys), ("human", _plan_human or "研究问题：{question}")]
 )
 
+_analyze_sys, _analyze_human = load_prompt_pair("deep_research_analyze")
 _ANALYZE_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("deep_research_analyze_system.md")),
-        ("human", _load_prompt("deep_research_analyze_human.md")),
-    ]
+    [("system", _analyze_sys), ("human", _analyze_human)]
 )
 
+_report_sys, _report_human = load_prompt_pair("deep_research_report")
 _REPORT_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("deep_research_report_system.md")),
-        ("human", _load_prompt("deep_research_report_human.md")),
-    ]
+    [("system", _report_sys), ("human", _report_human)]
 )
 
 

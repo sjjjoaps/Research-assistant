@@ -10,19 +10,14 @@ import community as community_louvain
 import networkx as nx
 from langchain_core.prompts import ChatPromptTemplate
 
+from src.agents.prompt_loader import load_prompt_pair
 from src.graph_store import GraphStore
 from src.llm_client import get_llm
 
 
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
-
-
+_sys, _human = load_prompt_pair("community_summary")
 _SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("community_summary_system.md")),
-        ("human", _load_prompt("community_summary_human.md")),
-    ]
+    [("system", _sys), ("human", _human)]
 )
 
 

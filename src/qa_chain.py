@@ -4,19 +4,14 @@
 """
 from langchain_core.prompts import ChatPromptTemplate
 
+from src.agents.prompt_loader import load_prompt_pair
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk, SemanticRetriever
 
 
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
-
-
+_qa_sys, _qa_human = load_prompt_pair("qa_chain")
 _QA_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("qa_chain_system.md")),
-        ("human", _load_prompt("qa_chain_human.md")),
-    ]
+    [("system", _qa_sys), ("human", _qa_human)]
 )
 
 

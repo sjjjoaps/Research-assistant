@@ -140,6 +140,8 @@ _HL_ONLY_WORDS = {
     "directions",
 }
 
+from src.agents.prompt_loader import load_system_prompt
+
 _PHRASE_RE = re.compile(
     r"[A-Z][A-Za-z0-9.+\-]*(?:\s+[A-Z]?[A-Za-z0-9.+\-]+){0,5}"
     r"|[A-Za-z][A-Za-z0-9.+\-]{1,31}"
@@ -153,8 +155,7 @@ _HL_PHRASE_RE = re.compile(
     r"[\u4e00-\u9fffA-Za-z0-9.+\-]{0,10}(?:研究趋势|发展趋势|应用挑战|研究方向|研究现状|技术进展|主要挑战)"
 )
 
-with open("prompt/keyword_extractor_fallback.md", "r", encoding="utf-8") as f:
-    _LLM_PROMPT = f.read()
+_LLM_PROMPT = load_system_prompt("keyword_extractor_fallback")
 
 
 @dataclass

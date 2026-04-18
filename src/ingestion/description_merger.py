@@ -18,14 +18,12 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from src.agents.prompt_loader import load_prompt_pair
 from src.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
 
-with open("prompt/description_merger.md", "r", encoding="utf-8") as f:
-    _SUMMARIZE_SYSTEM = f.read()
-with open("prompt/description_merger_human.md", "r", encoding="utf-8") as f:
-    _SUMMARIZE_HUMAN = f.read()
+_SUMMARIZE_SYSTEM, _SUMMARIZE_HUMAN = load_prompt_pair("description_merger")
 
 class DescriptionMerger:
     """实体/关系描述合并器。

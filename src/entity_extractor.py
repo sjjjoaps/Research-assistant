@@ -22,6 +22,7 @@ import unicodedata
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
+from src.agents.prompt_loader import load_prompt_pair
 from src.chunker import TextChunk
 from src.graph_store import GraphStore
 from src.ingestion.description_merger import DescriptionMerger
@@ -47,17 +48,9 @@ class ExtractionResult(BaseModel):
     relations: list[RelationItem] = Field(default_factory=list)
 
 
+_sys, _human = load_prompt_pair("relation_extractor")
 _PROMPT = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            open("prompt/relation_extra_prompt.md", "r", encoding="utf-8").read(),
-        ),
-        (
-            "human",
-            open("prompt/relation_extra_human.md", "r", encoding="utf-8").read(),
-        ),
-    ]
+    [("system", _sys), ("human", _human)]
 )
 
 

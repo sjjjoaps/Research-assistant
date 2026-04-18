@@ -21,6 +21,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from src.agents.prompt_loader import load_system_prompt
+
 logger = logging.getLogger(__name__)
 
 # ── 正则常量 ──────────────────────────────────────────────────────────────────
@@ -36,8 +38,7 @@ _REF_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
-with open("prompt/citation_extractor_fallback.md", "r", encoding="utf-8") as f:
-    _LLM_PROMPT = f.read()
+_LLM_PROMPT = load_system_prompt("citation_extractor_fallback")
 
 _MAX_REFERENCES = 100  # 单文档最多处理引用数，防止超大文档消耗过多 LLM 调用
 

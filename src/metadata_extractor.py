@@ -9,6 +9,7 @@ from typing import Optional
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
+from src.agents.prompt_loader import load_prompt_pair
 from src.document_parser import ParsedDocument
 from src.llm_client import get_llm
 
@@ -26,11 +27,9 @@ class DocumentMetadata(BaseModel):
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
-with open("prompt/extractor_prompt.md", "r", encoding="utf-8") as f:
-    _SYSTEM_PROMPT = f.read()
-    
+_meta_sys, _meta_human = load_prompt_pair("metadata_extractor")
 _PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _SYSTEM_PROMPT), ("human", open("prompt/metadata_extractor_human.md", "r", encoding="utf-8").read())]
+    [("system", _meta_sys), ("human", _meta_human)]
 )
 
 

@@ -37,36 +37,14 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 from typing import Optional
+
+from src.agents.prompt_loader import load_system_prompt
 
 logger = logging.getLogger(__name__)
 
-# 提取器 LLM Prompt 文件路径
-_EXTRACTOR_PROMPT_PATH  = Path("prompt/memory_extractor_system.md")
-_EXTRACTOR_PROMPT_FALLBACK = """\
-你是一个对话记忆提取助手。分析下面的单轮对话，判断是否包含值得长期归档的用户偏好、规则或重要结论。
-
-## 判断标准
-只有以下情况才应保存记忆：
-- 用户明确表达了一个会影响未来行为的**持久性偏好**（如"以后检索时优先看方法部分"）
-- 用户要求**建立规则**（如"以后时间类问题优先用综合检索"）
-- 用户表达了**强烈且会反复用到的**学习/研究偏好
-
-以下情况**不应**保存：
-- 普通的单次问答结论（不会重复使用）
-- 临时性的查询需求
-- 寒暄、感谢、简单确认
-
-## 对话内容
-用户：{user_input}
-助手：{ai_response}
-
-## 输出要求
-只输出 JSON，不要加任何说明文字：
-- 如果有值得保存的记忆：{{"should_save": true, "title": "简洁标题（10-20字）", "description": "一行摘要（20-60字）", "body": "详细说明（Markdown）", "type": "preference"}}
-- 如果没有：{{"should_save": false}}
-"""
+# 提取器 LLM Prompt（统一 Prompt 管理，fallback 内置于 prompt_loader）
+_EXTRACTOR_TEMPLATE = load_system_prompt("memory_extractor")
 
 # 词重叠去重阈值
 _SIMILARITY_THRESHOLD = 0.7
@@ -140,13 +118,7 @@ def _call_extractor_llm(user_input: str, ai_response: str) -> Optional[dict]:
     try:
         from src.llm_client import get_llm
 
-        # 加载 Prompt 模板
-        if _EXTRACTOR_PROMPT_PATH.exists():
-            template = _EXTRACTOR_PROMPT_PATH.read_text(encoding="utf-8")
-        else:
-            template = _EXTRACTOR_PROMPT_FALLBACK
-
-        prompt  = template.replace("{user_input}", user_input).replace("{ai_response}", ai_response)
+        prompt  = _EXTRACTOR_TEMPLATE.replace("{user_input}", user_input).replace("{ai_response}", ai_response)
         llm     = get_llm(temperature=0.0)
         result  = llm.invoke(prompt)
         content = str(result.content).strip()

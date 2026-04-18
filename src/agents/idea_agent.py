@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.deep_research_agent import ResearchReport
+from src.agents.prompt_loader import load_prompt_pair
 from src.llm_client import get_llm
 
 
@@ -30,15 +31,9 @@ class IdeaReport(BaseModel):
     )
 
 
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
-
-
+_idea_sys, _idea_human = load_prompt_pair("idea_agent")
 _IDEA_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("idea_agent_system.md")),
-        ("human", _load_prompt("idea_agent_human.md")),
-    ]
+    [("system", _idea_sys), ("human", _idea_human)]
 )
 
 

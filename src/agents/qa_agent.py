@@ -20,6 +20,7 @@ from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.base_agent import BaseAgent, Turn
+from src.agents.prompt_loader import load_prompt_pair
 from src.llm_client import get_llm
 from src.retriever import RetrievedChunk, SemanticRetriever
 from src.retrieval.keyword_extractor import KeywordExtractor
@@ -28,15 +29,9 @@ from src.token_tracker import TokenUsage
 RetrieverMode = Literal["semantic", "hybrid", "graph", "local", "global", "mix"]
 
 
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
-
-
+_qa_sys, _qa_human = load_prompt_pair("qa_agent")
 _QA_AGENT_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("qa_agent_system.md")),
-        ("human", _load_prompt("qa_agent_human.md")),
-    ]
+    [("system", _qa_sys), ("human", _qa_human)]
 )
 
 
