@@ -1,35 +1,53 @@
 """
-系统 Prompt 加载工具（Phase 8-4）。
+全局 Prompt 加载器（P0-Step 1 重构）。
 
 职责：
-- 从 prompt/ 目录加载 MasterAgent 系统 Prompt（prompt/master_agent_system.md）
-- 提供带缓存的加载函数，避免每次请求重复读取磁盘
-- 若文件不存在，返回内置 fallback Prompt（与正式 Prompt 同结构，不裁减章节）并打印警告
-- validate_system_prompt() 用标题级关键词覆盖全部 8 个必要章节，避免宽松误判
+- 作为全项目统一 Prompt 加载入口，所有模块通过此模块读取 Prompt 文件
+- 支持新合并格式（{name}.md）和旧拆分格式（{name}_system.md / {name}_human.md）兼容加载
+- 提供带 lru_cache 的加载函数，避免重复磁盘 I/O
+- 文件不存在时 fallback 并打印 WARNING，不中断启动
 
-设计决策：
-- 本模块不导入 tool_registry，保持 Prompt 层与工具注册层解耦
-- validate_system_prompt() 使用标题级匹配（"# 章节名"格式），而非内容级关键词，
-  防止章节恰好含关键词但结构缺失时被误判为合法
+合并文件格式（新格式）：
+    ## System Prompt
+    ...system 内容...
 
-用法：
-    from src.agents.prompt_loader import load_master_agent_system_prompt
-    system_prompt = load_master_agent_system_prompt()
+    ---
+
+    ## Human Prompt Template
+    ...human 内容（含 {变量} 占位符）...
+
+加载优先级（每次均按此顺序查找）：
+    1. prompt/{name}.md            ← 新合并格式（优先）
+    2. prompt/{name}_system.md     ← 旧 system 文件（兼容回退）
+    3. 返回空字符串并打印 WARNING   ← 最终兜底
+
+Public API：
+    load_system_prompt(name)         → str
+    load_human_template(name)        → str
+    load_prompt_pair(name)           → tuple[str, str]
+    reload_prompt(name)              → None  （清除指定 name 的缓存）
+    load_master_agent_system_prompt() → str  （保留，供 master_agent 专用逻辑使用）
+    reload_master_agent_system_prompt() → str
+    validate_system_prompt(prompt)   → dict
 """
 from __future__ import annotations
 
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Prompt 文件路径（相对于项目根目录）
-_MASTER_AGENT_PROMPT_PATH = Path("prompt/master_agent_system.md")
+# ── 路径常量 ──────────────────────────────────────────────────────────────────
+_PROMPT_DIR = Path("prompt")
+_PROMPT_DIR_ABS = Path(__file__).resolve().parent.parent.parent / "prompt"
 
-# ── 必要章节清单（与 prompt/master_agent_system.md 的 8 节一一对应）────────────
-# 值为"# 节名"的精确标题字符串，需在 Prompt 中以独立行出现。
-# 若调整 Prompt 章节数量，同步更新此处。
+# ── 分隔符与标题 ──────────────────────────────────────────────────────────────
+_SYSTEM_HEADER = "## System Prompt"
+_HUMAN_HEADER = "## Human Prompt Template"
+
+# ── MasterAgent 章节校验 ──────────────────────────────────────────────────────
 REQUIRED_SECTION_HEADERS: dict[str, str] = {
     "角色定义":       "# 角色定义",
     "能力边界":       "# 能力边界",
@@ -41,9 +59,7 @@ REQUIRED_SECTION_HEADERS: dict[str, str] = {
     "输出格式要求":   "# 输出格式要求",
 }
 
-# ── Fallback Prompt（文件不存在时使用）──────────────────────────────────────
-# 与正式 Prompt 保持相同的 8 节结构，确保 MasterAgent 行为不因磁盘问题大幅退化。
-# 内容是每节的最小保证子集，不可进一步删减。
+# ── MasterAgent Fallback Prompt ───────────────────────────────────────────────
 _FALLBACK_SYSTEM_PROMPT = """\
 # 角色定义
 你是 GraphAssistant，一个专注于学术文献知识库的智能研究助手。
@@ -97,138 +113,368 @@ _FALLBACK_SYSTEM_PROMPT = """\
 """
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 内部工具函数
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _resolve_prompt_path(filename: str) -> Path | None:
+    """按优先级查找 prompt 文件，返回存在的 Path 或 None。"""
+    for base in (_PROMPT_DIR, _PROMPT_DIR_ABS):
+        p = base / filename
+        if p.exists():
+            return p
+    return None
+
+
+def _normalize_name(name: str) -> str:
+    """
+    将旧式 name 归一化为新式 name，支持旧调用方无感知兼容。
+
+    规则：
+      - "qa_agent_system"  → "qa_agent"（去掉 _system 后缀）
+      - "qa_agent_human"   → "qa_agent"（去掉 _human 后缀）
+      - "qa_agent"         → "qa_agent"（不变）
+    """
+    for suffix in ("_system", "_human"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _read_file(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        logger.error("读取 Prompt 文件失败: %s", exc)
+        return ""
+
+
+def _split_merged(content: str) -> tuple[str, str]:
+    """
+    从合并文件中提取 system 和 human 两段正文。
+
+    支持两种格式：
+      格式A（标准）：文件含 `## System Prompt` 和 `## Human Prompt Template` 标题
+      格式B（简单）：仅用 `---` 分隔，无明确标题
+
+    返回 (system_text, human_text)，任一段缺失时返回空字符串。
+    """
+    # 格式A：按标题提取（优先，更精确）
+    if _SYSTEM_HEADER in content:
+        system_text = _extract_section(content, _SYSTEM_HEADER, _HUMAN_HEADER)
+        human_text = _extract_section(content, _HUMAN_HEADER, None)
+        return system_text, human_text
+
+    # 格式B：按 `---` 分隔符切割
+    parts = re.split(r"^\s*---\s*$", content, maxsplit=1, flags=re.MULTILINE)
+    system_text = parts[0].strip()
+    human_text = parts[1].strip() if len(parts) > 1 else ""
+    return system_text, human_text
+
+
+def _extract_section(content: str, start_header: str, end_header: str | None) -> str:
+    """
+    提取从 start_header 到 end_header（或文件末尾 / `---` 分隔符）之间的正文内容。
+    不包含标题行本身。
+    """
+    start_idx = content.find(start_header)
+    if start_idx == -1:
+        return ""
+
+    # 跳过标题行，从下一行开始
+    after_header = content[start_idx + len(start_header):]
+
+    # 找结束位置：end_header 或 `---` 分隔符（独立行）
+    end_idx = len(after_header)
+    if end_header:
+        h_pos = after_header.find(end_header)
+        if h_pos != -1:
+            end_idx = h_pos
+
+    sep_match = re.search(r"^\s*---\s*$", after_header[:end_idx], flags=re.MULTILINE)
+    if sep_match:
+        end_idx = min(end_idx, sep_match.start())
+
+    return after_header[:end_idx].strip()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 核心加载逻辑（带 lru_cache）
+# ══════════════════════════════════════════════════════════════════════════════
+
+@lru_cache(maxsize=64)
+def _load_merged(name: str) -> tuple[str, str]:
+    """
+    缓存加载单个 prompt 的 (system, human) 对。
+
+    name 会先经过 _normalize_name 归一化，因此旧调用方传入
+    "qa_agent_system" 与传入 "qa_agent" 效果相同。
+
+    加载优先级：
+      1. prompt/{name}.md              新合并格式
+      2. prompt/{name}_system.md       旧 system 文件（回退）
+      human 部分：
+      1. 合并文件中 --- 之后的内容
+      2. prompt/{name}_human.md        旧 human 文件（回退）
+      3. ""                            最终兜底
+    """
+    name = _normalize_name(name)
+
+    # ── 尝试加载合并文件 ──────────────────────────────────────────────────────
+    merged_path = _resolve_prompt_path(f"{name}.md")
+    if merged_path:
+        content = _read_file(merged_path)
+        if content:
+            system, human = _split_merged(content)
+            if system:
+                logger.debug("已加载合并 Prompt: %s（%d 字符）", merged_path, len(content))
+                return system, human
+            # 合并文件存在但解析不到 system 段，当作无 system 标题的 system-only 文件
+            logger.debug("合并文件无 System 标题，整体作为 system prompt: %s", merged_path)
+            return content, human
+
+    # ── 回退：旧拆分文件 ──────────────────────────────────────────────────────
+    system = ""
+    system_path = _resolve_prompt_path(f"{name}_system.md")
+    if system_path:
+        system = _read_file(system_path)
+        if system:
+            logger.warning(
+                "Prompt '%s' 使用旧拆分文件 %s，建议迁移至 %s.md",
+                name, system_path.name, name,
+            )
+
+    human = ""
+    human_path = _resolve_prompt_path(f"{name}_human.md")
+    if human_path:
+        human = _read_file(human_path)
+
+    if not system:
+        logger.warning("Prompt '%s' 未找到任何可用文件，返回空字符串", name)
+
+    return system, human
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Public API
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_system_prompt(name: str) -> str:
+    """
+    加载指定功能的 System Prompt。
+
+    Args:
+        name: Prompt 名称，不含扩展名，例如 "qa_agent"、"deep_research_analyze"
+
+    Returns:
+        System Prompt 文本；文件不存在时返回空字符串并打印 WARNING。
+    """
+    system, _ = _load_merged(name)
+    return system
+
+
+def load_human_template(name: str) -> str:
+    """
+    加载指定功能的 Human Prompt Template（含 {变量} 占位符）。
+
+    Args:
+        name: Prompt 名称，不含扩展名
+
+    Returns:
+        Human 模板文本；system-only prompt 或文件不存在时返回空字符串。
+    """
+    _, human = _load_merged(name)
+    return human
+
+
+def load_prompt_pair(name: str) -> tuple[str, str]:
+    """
+    一次加载 System Prompt 和 Human Template。
+
+    Returns:
+        (system_prompt, human_template) 元组。
+    """
+    return _load_merged(name)
+
+
+def reload_prompt(name: str) -> None:
+    """
+    清除所有 Prompt 文件缓存，下次调用时重新读取磁盘。
+
+    注意：lru_cache 不支持按单个 key 精确失效，因此本函数会清除全部缓存。
+    传入 name 参数仅用于日志提示，实际清除范围是全部缓存条目。
+    若需要精确失效单个 name，可考虑改用 dict 手动管理缓存。
+
+    供热更新和测试使用。
+    """
+    _load_merged.cache_clear()
+    logger.info("已清除全部 Prompt 缓存（触发原因：name=%s）", name)
+
+
+def reload_all_prompts() -> None:
+    """清除所有 Prompt 缓存。"""
+    _load_merged.cache_clear()
+    load_master_agent_system_prompt.cache_clear()
+    logger.info("已清除全部 Prompt 缓存")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MasterAgent 专用接口（保持向后兼容）
+# ══════════════════════════════════════════════════════════════════════════════
+
 @lru_cache(maxsize=1)
 def load_master_agent_system_prompt() -> str:
     """
-    加载 MasterAgent 系统 Prompt，使用 @lru_cache 确保全程只读一次磁盘。
+    加载 MasterAgent 系统 Prompt，并执行 8 节结构校验。
 
-    加载策略（优先级递减）：
-    1. prompt/master_agent_system.md（相对于当前工作目录）
-    2. <本文件所在目录>/../../.../prompt/master_agent_system.md（绝对路径回退）
-    3. 内置 _FALLBACK_SYSTEM_PROMPT（最后兜底，同时发出 WARNING 级日志）
-
-    加载成功后对内容做 validate 校验；若正式文件校验失败，发出 WARNING 但仍返回内容，
-    不阻断启动——校验失败只是警告，不是错误。
-    若回退到 fallback，发出 ERROR 级日志以明确通知运维人员。
+    加载优先级：
+      1. prompt/master_agent_system.md（历史文件名，优先保持兼容）
+      2. prompt/master_agent.md（新合并格式）
+      3. 内置 _FALLBACK_SYSTEM_PROMPT
 
     Returns:
         str — 系统 Prompt 文本，可直接传入 SystemMessage(content=...)
     """
-    path = _MASTER_AGENT_PROMPT_PATH
-    used_fallback = False
-
-    if not path.exists():
-        # 绝对路径回退：兼容工作目录不是项目根的情况
-        alt_path = Path(__file__).resolve().parent.parent.parent / "prompt" / "master_agent_system.md"
-        if alt_path.exists():
-            path = alt_path
-        else:
-            logger.error(
-                "系统 Prompt 文件未找到（%s 和 %s 均不存在），"
-                "已降级使用内置 fallback Prompt。服务行为可能受限，请尽快恢复文件。",
-                _MASTER_AGENT_PROMPT_PATH,
-                alt_path,
-            )
-            used_fallback = True
-
-    if not used_fallback:
-        try:
-            content = path.read_text(encoding="utf-8").strip()
-            if not content:
-                logger.error(
-                    "系统 Prompt 文件为空（%s），已降级使用内置 fallback Prompt。",
-                    path,
-                )
-                used_fallback = True
-            else:
-                # 对正式文件做结构校验，发现问题只 WARNING 不中断
+    # 尝试 master_agent_system.md（历史）
+    for candidate in ("master_agent_system.md", "master_agent.md"):
+        path = _resolve_prompt_path(candidate)
+        if path:
+            content = _read_file(path)
+            if content:
+                # 若是合并文件，只取 system 段
+                if _SYSTEM_HEADER in content:
+                    system, _ = _split_merged(content)
+                    content = system if system else content
                 result = validate_system_prompt(content)
                 if not result["ok"]:
                     logger.warning(
-                        "系统 Prompt 结构校验失败，仍将使用该文件但请及时修复。errors: %s",
+                        "MasterAgent Prompt 结构校验失败，仍将使用该文件但请及时修复。errors: %s",
                         result["errors"],
                     )
-                logger.info(
-                    "已加载系统 Prompt（%d 字符，来源：%s）", len(content), path
-                )
+                logger.info("已加载 MasterAgent Prompt（%d 字符，来源：%s）", len(content), path)
                 return content
-        except OSError as exc:
-            logger.error("读取系统 Prompt 文件失败: %s，已降级使用内置 fallback Prompt。", exc)
-            used_fallback = True
 
-    # fallback 路径：同样做校验，给出 WARNING（fallback 结构完整，正常不会触发 errors）
-    if used_fallback:
-        result = validate_system_prompt(_FALLBACK_SYSTEM_PROMPT)
-        if not result["ok"]:
-            logger.warning(
-                "内置 fallback Prompt 结构校验失败（这是 bug，请修复代码）: %s",
-                result["errors"],
-            )
-        return _FALLBACK_SYSTEM_PROMPT
-
-    # 不可达分支，保证类型安全
-    return _FALLBACK_SYSTEM_PROMPT  # pragma: no cover
+    logger.error(
+        "MasterAgent Prompt 文件未找到（master_agent_system.md / master_agent.md），"
+        "已降级使用内置 fallback Prompt。"
+    )
+    return _FALLBACK_SYSTEM_PROMPT
 
 
 def reload_master_agent_system_prompt() -> str:
-    """
-    清除缓存并重新加载 Prompt 文件（供热更新场景使用）。
-
-    典型使用场景：
-    - 修改 prompt/master_agent_system.md 后，不重启服务使新内容生效
-    - 单元测试中验证不同 Prompt 内容时重置缓存状态
-
-    Returns:
-        str — 重新加载后的系统 Prompt 文本
-    """
+    """清除缓存并重新加载 MasterAgent Prompt（供热更新使用）。"""
     load_master_agent_system_prompt.cache_clear()
     return load_master_agent_system_prompt()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 校验工具
+# ══════════════════════════════════════════════════════════════════════════════
+
 def validate_system_prompt(prompt: str, tool_names: list[str] | None = None) -> dict:
     """
-    验证系统 Prompt 的结构完整性。
-
-    检查策略（严格于内容关键词匹配）：
-    - 使用"# 节名"的标题级精确匹配，要求 8 个必要章节均以独立标题行出现
-    - Prompt 最低长度 500 字符（正式 Prompt 约 2000 字符，fallback 约 900 字符）
-    - 若传入 tool_names，检查每个工具名是否在 Prompt 中出现（未出现进入 warnings）
+    验证 MasterAgent 系统 Prompt 的结构完整性（8 节标题级校验）。
 
     Args:
         prompt:     系统 Prompt 文本
-        tool_names: 可选，当前注册的工具名列表（用于检查工具覆盖率）
+        tool_names: 可选，当前注册的工具名列表（未出现进入 warnings）
 
     Returns:
-        dict — {
-            "ok":       bool,         # True 表示无 errors（warnings 不影响 ok）
-            "warnings": list[str],    # 非致命问题（如工具未覆盖）
-            "errors":   list[str],    # 致命结构缺失（任意一条即 ok=False）
-        }
+        {"ok": bool, "warnings": list[str], "errors": list[str]}
     """
     warnings_list: list[str] = []
     errors_list:   list[str] = []
 
-    # 1. 必要章节标题级检查（覆盖全部 8 节）
     for section_name, header in REQUIRED_SECTION_HEADERS.items():
         if header not in prompt:
-            errors_list.append(
-                f"缺少必要章节：{section_name}（期望标题行：'{header}'）"
-            )
+            errors_list.append(f"缺少必要章节：{section_name}（期望标题行：'{header}'）")
 
-    # 2. 最低长度（正式 Prompt 约 2000 字，fallback 约 900 字，阈值取 500）
     MIN_LENGTH = 500
     if len(prompt) < MIN_LENGTH:
         errors_list.append(
             f"Prompt 过短（仅 {len(prompt)} 字符，最低要求 {MIN_LENGTH} 字符），疑似内容缺失"
         )
 
-    # 3. 工具覆盖率（可选，未出现的工具名进入 warnings 而非 errors）
     if tool_names:
         for name in tool_names:
             if name not in prompt:
-                warnings_list.append(
-                    f"工具 '{name}' 未在 Prompt 中出现，LLM 可能缺少调用指引"
-                )
+                warnings_list.append(f"工具 '{name}' 未在 Prompt 中出现，LLM 可能缺少调用指引")
 
-    ok = len(errors_list) == 0
-    return {"ok": ok, "warnings": warnings_list, "errors": errors_list}
+    return {"ok": len(errors_list) == 0, "warnings": warnings_list, "errors": errors_list}
+
+
+def validate_prompt_structure(name: str) -> dict:
+    """
+    检查合并格式 Prompt 文件的质量，输出建议（suggestions）。
+
+    三层结构（### 边界层 / ### 决策层 / ### 任务示例）是推荐写法，
+    缺少任何一层只会进入 suggestions，不影响 ok 结果。
+
+    硬性错误（会导致 ok=False）仅限于：
+      - 文件不存在
+      - 检测到 Human Prompt Template 标记但 human 段内容为空
+
+    Returns:
+        {
+            "ok":          bool,        # False 仅表示有硬性错误
+            "errors":      list[str],   # 硬性错误（影响运行）
+            "suggestions": list[str],   # 建议改进项（不影响 ok）
+            "is_pair":     bool,
+        }
+    """
+    errors_list: list[str] = []
+    suggestions: list[str] = []
+
+    path = _resolve_prompt_path(f"{name}.md")
+    if not path:
+        return {"ok": False, "errors": [f"文件 {name}.md 不存在"], "suggestions": [], "is_pair": False}
+
+    content = _read_file(path)
+    system, human = _split_merged(content)
+
+    # is_pair：从原始内容检测是否存在 human 分隔标记（独立于解析结果）
+    has_human_marker = (
+        _HUMAN_HEADER in content
+        or bool(re.search(r"^\s*---\s*$", content, flags=re.MULTILINE))
+    )
+    is_pair = has_human_marker
+    # 硬性错误：有 pair 标记但 human 段内容为空
+    if has_human_marker and not human:
+        errors_list.append("检测到 Human Prompt Template 标记但内容为空，请补充模板变量")
+
+    # ── 以下均为建议项，不影响 ok ─────────────────────────────────────────────
+    check_text = system if system else content
+
+    # 建议：三层结构标题
+    for section in ("### 边界层", "### 决策层", "### 任务示例"):
+        if section not in check_text:
+            suggestions.append(f"建议添加 '{section}' 章节，有助于模型更好地遵循规范")
+
+    # 建议：边界层禁令数量
+    boundary_items = [
+        line for line in check_text.splitlines()
+        if re.search(r"禁止", line) and line.strip().startswith("-")
+    ]
+    if len(boundary_items) < 2:
+        suggestions.append(
+            f"建议在边界层中添加更多禁令（当前 {len(boundary_items)} 条，推荐至少 2 条）"
+        )
+
+    # 建议：至少包含一个任务示例
+    example_count = len(re.findall(
+        r"(?:###\s*任务示例|###\s*示例|示例\s*[12]\b|\*\*示例\s*[12]\*\*|\*\*输入摘要\*\*)",
+        check_text,
+    ))
+    if example_count < 1:
+        suggestions.append("建议添加至少 1 个任务示例，帮助模型对齐输出格式")
+
+    # 建议：最低长度
+    if len(content) < 200:
+        suggestions.append(f"文件内容较短（{len(content)} 字符），建议进一步补充")
+
+    return {
+        "ok": len(errors_list) == 0,
+        "errors": errors_list,
+        "suggestions": suggestions,
+        "is_pair": is_pair,
+    }
