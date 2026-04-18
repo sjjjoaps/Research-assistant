@@ -33,6 +33,10 @@ from src.agents.tool_registry import (
     build_tool_registry,
     TOOL_DISPLAY_NAMES,
     _auto_select_mode,
+    retrieve_knowledge,
+    list_documents,
+    get_document_metadata,
+    get_knowledge_graph_stats,
 )
 
 
