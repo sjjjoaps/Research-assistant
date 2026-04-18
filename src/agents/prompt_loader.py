@@ -328,15 +328,14 @@ def load_master_agent_system_prompt() -> str:
     加载 MasterAgent 系统 Prompt，并执行 8 节结构校验。
 
     加载优先级：
-      1. prompt/master_agent_system.md（历史文件名，优先保持兼容）
-      2. prompt/master_agent.md（新合并格式）
+      1. prompt/master_agent.md（新合并格式，优先）
+      2. prompt/master_agent_system.md（历史文件名，兼容回退）
       3. 内置 _FALLBACK_SYSTEM_PROMPT
 
     Returns:
         str — 系统 Prompt 文本，可直接传入 SystemMessage(content=...)
     """
-    # 尝试 master_agent_system.md（历史）
-    for candidate in ("master_agent_system.md", "master_agent.md"):
+    for candidate in ("master_agent.md", "master_agent_system.md"):
         path = _resolve_prompt_path(candidate)
         if path:
             content = _read_file(path)

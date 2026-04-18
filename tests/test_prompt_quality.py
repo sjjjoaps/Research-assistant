@@ -42,6 +42,7 @@ PAIR_PROMPTS = [
 SYSTEM_ONLY_PROMPTS = [
     "citation_extractor_fallback",
     "keyword_extractor_fallback",
+    "master_agent",
 ]
 
 ALL_MERGED_PROMPTS = PAIR_PROMPTS + SYSTEM_ONLY_PROMPTS
@@ -113,7 +114,7 @@ def test_no_structural_errors(name):
 # ══════════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize("name", ALL_MERGED_PROMPTS)
-def test_structure_suggestions(name, capsys):
+def test_structure_suggestions(name):
     result = validate_prompt_structure(name)
     if result.get("suggestions"):
         print(f"\n[建议] prompt/{name}.md:")

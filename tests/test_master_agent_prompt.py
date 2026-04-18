@@ -95,13 +95,13 @@ def test_reload_picks_up_file_changes():
     热更新测试：临时修改 Prompt 文件后，reload 应返回新内容（而非缓存旧内容）。
     测试结束后必须恢复原始文件，避免污染磁盘。
     """
-    # 找到真实文件路径（走与 prompt_loader 相同的查找逻辑）
-    prompt_path = Path("prompt/master_agent_system.md")
+    # 优先使用新合并文件，与 prompt_loader 加载顺序一致
+    prompt_path = Path("prompt/master_agent.md")
     if not prompt_path.exists():
         prompt_path = (
             Path(__file__).resolve().parent.parent
             / "prompt"
-            / "master_agent_system.md"
+            / "master_agent.md"
         )
     if not prompt_path.exists():
         print("[SKIP] test_reload_picks_up_file_changes：Prompt 文件不存在，跳过热更新测试")
@@ -110,10 +110,10 @@ def test_reload_picks_up_file_changes():
     # 读取原始内容
     original_content = prompt_path.read_text(encoding="utf-8")
 
-    # 第一次加载并缓存
+    # 第一次加载并缓存（内容为 system 段，非原始文件全文）
     load_master_agent_system_prompt.cache_clear()
     first_load = load_master_agent_system_prompt()
-    assert first_load == original_content.strip(), "首次加载内容与文件不一致"
+    assert len(first_load) > 0, "首次加载应返回非空内容"
 
     # 临时覆写文件（注入一个哨兵字符串）
     sentinel = "RELOAD_TEST_SENTINEL_XYZ_12345"
@@ -251,7 +251,7 @@ def test_all_expected_tools_covered_in_prompt():
     missing = [name for name in _EXPECTED_TOOL_NAMES if name not in prompt]
     assert len(missing) == 0, (
         f"以下工具在 Prompt 中缺少说明：{missing}\n"
-        "请在 prompt/master_agent_system.md 的'# 工具调用决策指南'节中补充对应工具的描述。"
+        "请在 prompt/master_agent.md 的'# 工具调用决策指南'节中补充对应工具的描述。"
     )
     print("[PASS] test_all_expected_tools_covered_in_prompt")
 
