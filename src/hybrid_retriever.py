@@ -8,8 +8,11 @@ BM25Retriever 无法原生过滤，在 RRF 排序后对完整候选集过滤再�
 Phase 10-2 Review 修复：section_filter 非空时不先截断 sorted_keys 再过滤，
 而是在完整 RRF 排序结果上过滤后再取 top_k，保证 BM25 后排但符合章节的结果不被丢弃。
 同时语义路径按 top_k * 3 扩容以提供更多候选。
+
+P1-Step 3：RRF 融合后接入 Reranker 精排（RERANKER_ENABLED=true 时生效）。
 """
 from src.bm25_retriever import BM25Retriever
+from src.retrieval.reranker import get_reranker
 from src.retriever import RetrievedChunk, SemanticRetriever
 
 
@@ -90,4 +93,7 @@ class HybridRetriever:
         if section_filter:
             fused = [c for c in fused if getattr(c, "section_type", "") == section_filter]
 
+        reranker = get_reranker()
+        if reranker:
+            return reranker.rerank(query, fused)[: self.top_k]
         return fused[: self.top_k]

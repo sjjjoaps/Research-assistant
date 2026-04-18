@@ -9,12 +9,15 @@ LocalRetriever（两者内部均支持原生过滤）；GlobalRetriever 产生�
 
 Phase 10-2 Review 修复：section_filter 非空时，融合候选池扩大到 top_k * 3，
 过滤后再裁至 top_k，避免三路融合后早截断导致目标章节候选被丢弃。
+
+P1-Step 3：RRF 融合后接入 Reranker 精排（RERANKER_ENABLED=true 时生效）。
 """
 from __future__ import annotations
 
 from src.retrieval.fusion import fuse_ranked_lists
 from src.retrieval.global_retriever import GlobalRetriever
 from src.retrieval.local_retriever import LocalRetriever
+from src.retrieval.reranker import get_reranker
 from src.retriever import RetrievedChunk, SemanticRetriever
 
 _FILTER_EXPAND = 3   # section_filter 时扩大候选池的倍数
@@ -53,6 +56,9 @@ class MixRetriever:
         if section_filter:
             fused = [c for c in fused if getattr(c, "section_type", "") == section_filter]
 
+        reranker = get_reranker()
+        if reranker:
+            return reranker.rerank(query, fused)[: self.top_k]
         return fused[: self.top_k]
 
     def close(self) -> None:
