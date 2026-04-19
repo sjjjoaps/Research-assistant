@@ -6,11 +6,11 @@ Idea Agent
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
-from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.deep_research_agent import ResearchReport
 from src.agents.prompt_loader import load_prompt_pair
-from src.infrastructure.llm_client import get_llm
+from src.infrastructure.llm_client import get_native_llm
+from src.infrastructure.json_utils import extract_json
 
 
 class IdeaReport(BaseModel):
@@ -32,35 +32,34 @@ class IdeaReport(BaseModel):
 
 
 _idea_sys, _idea_human = load_prompt_pair("idea_agent")
-_IDEA_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _idea_sys), ("human", _idea_human)]
-)
+
+
+def _parse_idea_report(content: str) -> IdeaReport:
+    """Parse JSON (possibly wrapped in markdown fences) into IdeaReport."""
+    data = extract_json(content)
+    return IdeaReport(**data)
 
 
 class IdeaAgent:
     """无状态 Agent：将研究报告转化为固定模板 Idea 输出"""
 
     def __init__(self) -> None:
-        llm = get_llm(temperature=0.2)
-        self.chain = _IDEA_PROMPT | llm.with_structured_output(IdeaReport)
+        self._llm = get_native_llm(temperature=0.2)
+
+    def _invoke(self, question: str, report_summary: str) -> IdeaReport:
+        resp = self._llm.invoke([
+            {"role": "system", "content": _idea_sys},
+            {"role": "user",   "content": _idea_human.format(
+                question=question, report_summary=report_summary
+            )},
+        ])
+        return _parse_idea_report(str(resp.get("content") or ""))
 
     def generate(self, question: str, report: ResearchReport) -> IdeaReport:
-        """基于研究报告生成结构化 Idea 报告"""
-        return self.chain.invoke(
-            {
-                "question": question,
-                "report_summary": report.final_report,
-            }
-        )
+        return self._invoke(question, report.final_report)
 
     def generate_from_markdown(self, question: str, report_markdown: str) -> IdeaReport:
-        """直接接收 Markdown 文本生成 Idea 报告（供 API 层调用，无需完整 ResearchReport）"""
-        return self.chain.invoke(
-            {
-                "question": question,
-                "report_summary": report_markdown,
-            }
-        )
+        return self._invoke(question, report_markdown)
 
     @staticmethod
     def to_markdown(result: IdeaReport) -> str:

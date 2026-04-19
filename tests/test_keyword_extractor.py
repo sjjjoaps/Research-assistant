@@ -31,9 +31,7 @@ def test_llm_fallback_when_rule_extraction_returns_empty(monkeypatch):
         extractor,
         "_get_llm",
         lambda: SimpleNamespace(
-            invoke=lambda prompt: SimpleNamespace(
-                content='{"ll_keywords": ["LightRAG"], "hl_keywords": ["研究方向"]}'
-            )
+            invoke=lambda _: {"content": '{"ll_keywords": ["LightRAG"], "hl_keywords": ["研究方向"]}'}
         ),
     )
 

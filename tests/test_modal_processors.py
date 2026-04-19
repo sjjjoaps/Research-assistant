@@ -57,16 +57,14 @@ class TestImageProcessor:
         """LLM 调用成功时返回非空字符串。"""
         processor = ImageProcessor.__new__(ImageProcessor)
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="这是一张架构图，展示了编码器-解码器结构。")
+        mock_llm.invoke.return_value = {"content": "这是一张架构图，展示了编码器-解码器结构。"}
         processor._llm = mock_llm
 
-        with patch("src.ingestion.modal_processors.HumanMessage") as MockMsg:
-            MockMsg.return_value = MagicMock()
-            result = processor.process(
-                raw_content="data:image/png;base64,abc",
-                page_number=0,
-                position_hint="page 1, image 1",
-            )
+        result = processor.process(
+            raw_content="data:image/png;base64,abc",
+            page_number=0,
+            position_hint="page 1, image 1",
+        )
 
         assert isinstance(result, str)
         assert len(result) > 0
@@ -90,30 +88,27 @@ class TestImageProcessor:
         """有标题时应将标题包含在 prompt 中。"""
         processor = ImageProcessor.__new__(ImageProcessor)
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="图片描述")
-        processor._llm = mock_llm
 
         captured_messages = []
 
         def capture_invoke(messages):
             captured_messages.extend(messages)
-            return MagicMock(content="图片描述")
+            return {"content": "图片描述"}
 
         mock_llm.invoke = capture_invoke
+        processor._llm = mock_llm
 
-        with patch("src.ingestion.modal_processors.HumanMessage") as MockMsg:
-            MockMsg.return_value = MagicMock()
-            processor.process(
-                raw_content="data:image/png;base64,abc",
-                page_number=1,
-                position_hint="page 2, image 1",
-                caption="Figure 1: Architecture",
-            )
-            # 验证 HumanMessage 被调用时 content 包含标题
-            call_kwargs = MockMsg.call_args
-            content_list = call_kwargs[1]["content"] if call_kwargs[1] else call_kwargs[0][0]
-            text_part = next(p for p in content_list if p["type"] == "text")
-            assert "Figure 1: Architecture" in text_part["text"]
+        processor.process(
+            raw_content="data:image/png;base64,abc",
+            page_number=1,
+            position_hint="page 2, image 1",
+            caption="Figure 1: Architecture",
+        )
+
+        user_msg = next(m for m in captured_messages if m["role"] == "user")
+        content_list = user_msg["content"]
+        text_part = next(p for p in content_list if p["type"] == "text")
+        assert "Figure 1: Architecture" in text_part["text"]
 
     def test_instantiation_does_not_init_llm(self):
         """实例化 ImageProcessor 时不应触发 LLM 初始化（懒初始化）。"""

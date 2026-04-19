@@ -18,12 +18,12 @@ import logging
 from dataclasses import dataclass
 from typing import Literal
 
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agents.base_agent import BaseAgent
 from src.agents.prompt_loader import load_prompt_pair
-from src.infrastructure.llm_client import get_llm
+from src.infrastructure.llm_client import get_native_llm
+from src.infrastructure.json_utils import extract_json
 from src.retrieval.retriever import RetrievedChunk
 from src.retrieval.keyword_extractor import KeywordExtractor
 from src.infrastructure.token_tracker import TokenUsage
@@ -74,19 +74,11 @@ class SubQuestionList(BaseModel):
 # ──────────────────────────────────────────────────────────────────────────────
 
 _plan_sys, _plan_human = load_prompt_pair("deep_research_plan")
-_PLAN_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _plan_sys), ("human", _plan_human or "研究问题：{question}")]
-)
+_plan_human = _plan_human or "研究问题：{question}"
 
 _analyze_sys, _analyze_human = load_prompt_pair("deep_research_analyze")
-_ANALYZE_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _analyze_sys), ("human", _analyze_human)]
-)
 
 _report_sys, _report_human = load_prompt_pair("deep_research_report")
-_REPORT_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _report_sys), ("human", _report_human)]
-)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -163,20 +155,20 @@ class DeepResearchAgent(BaseAgent):
         self.retriever_mode = retriever_mode
         self.use_community = use_community
         self.retriever = _make_retriever(retriever_mode, top_k)
-        self.llm = get_llm(temperature=0.2)
-        # structured output 链（规划器）
-        self._plan_chain = _PLAN_PROMPT | self.llm.with_structured_output(SubQuestionList)
-        # 普通文本链
-        self._analyze_chain = _ANALYZE_PROMPT | self.llm
-        self._report_chain = _REPORT_PROMPT | self.llm
+        self._llm = get_native_llm(temperature=0.2)
         self._keyword_extractor = KeywordExtractor()
 
     # ── Step 1：规划 ──────────────────────────────────────────────────────────
 
     def _plan(self, question: str) -> list[str]:
-        result = self._plan_chain.invoke(
-            {"question": question, "max_n": self.max_subquestions}
-        )
+        resp = self._llm.invoke([
+            {"role": "system", "content": _plan_sys},
+            {"role": "user",   "content": _plan_human.format(
+                question=question, max_n=self.max_subquestions
+            )},
+        ])
+        content = str(resp.get("content") or "").strip()
+        result = SubQuestionList(**extract_json(content))
         return result.sub_questions[: self.max_subquestions]
 
     # ── Step 2+3：检索 + 局部分析 ─────────────────────────────────────────────
@@ -199,15 +191,18 @@ class DeepResearchAgent(BaseAgent):
                 token_usage=None,
             )
 
-        message = self._analyze_chain.invoke(
-            {"sub_question": sub_question, "context": context}
-        )
-        token_usage = TokenUsage.from_langchain_message(message, self.llm.model_name)
+        resp = self._llm.invoke([
+            {"role": "system", "content": _analyze_sys},
+            {"role": "user",   "content": _analyze_human.format(
+                sub_question=sub_question, context=context
+            )},
+        ])
+        token_usage = TokenUsage.from_native_response(resp, self._llm.model_name)
         return SubQuestionResult(
             question=sub_question,
             chunks=chunks,
             sources=sources,
-            analysis=str(message.content),
+            analysis=str(resp.get("content") or "").strip(),
             token_usage=token_usage,
         )
 
@@ -245,15 +240,16 @@ class DeepResearchAgent(BaseAgent):
 
         community_prompt = f"社区视角补充：\n{community_section}\n" if community_section else ""
 
-        message = self._report_chain.invoke(
-            {
-                "question": question,
-                "sub_analyses": sub_analyses_text,
-                "community_section": community_prompt,
-            }
-        )
-        token_usage = TokenUsage.from_langchain_message(message, self.llm.model_name)
-        return str(message.content), token_usage
+        resp = self._llm.invoke([
+            {"role": "system", "content": _report_sys},
+            {"role": "user",   "content": _report_human.format(
+                question=question,
+                sub_analyses=sub_analyses_text,
+                community_section=community_prompt,
+            )},
+        ])
+        token_usage = TokenUsage.from_native_response(resp, self._llm.model_name)
+        return str(resp.get("content") or "").strip(), token_usage
 
     # ── 主入口 ────────────────────────────────────────────────────────────────
 

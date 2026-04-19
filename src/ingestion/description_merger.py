@@ -16,10 +16,8 @@ from __future__ import annotations
 
 import logging
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
 from src.agents.prompt_loader import load_prompt_pair
-from src.infrastructure.llm_client import get_llm
+from src.infrastructure.llm_client import get_native_llm
 
 logger = logging.getLogger(__name__)
 
@@ -83,16 +81,16 @@ class DescriptionMerger:
     def _llm_summarize(self, descriptions: list[str]) -> str:
         """调用 LLM 将多条描述合并为一条摘要；失败时回退到直接拼接。"""
         if self._llm is None:
-            self._llm = get_llm(temperature=0.0)
+            self._llm = get_native_llm(temperature=0.0)
 
         combined = self.separator.join(descriptions)
         messages = [
-            SystemMessage(content=_SUMMARIZE_SYSTEM),
-            HumanMessage(content=_SUMMARIZE_HUMAN.format(combined=combined)),
+            {"role": "system", "content": _SUMMARIZE_SYSTEM},
+            {"role": "user",   "content": _SUMMARIZE_HUMAN.format(combined=combined)},
         ]
         try:
             response = self._llm.invoke(messages)
-            return response.content.strip()
+            return str(response.get("content") or "").strip()
         except Exception as exc:
             logger.warning("LLM 摘要失败，回退到直接拼接: %s", exc)
             return self.separator.join(descriptions)

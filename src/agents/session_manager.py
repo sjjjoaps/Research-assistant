@@ -570,11 +570,11 @@ class SessionManager:
           文件不存在时使用内置 fallback。
         - temperature=0.0 保证摘要确定性。
         """
-        from src.infrastructure.llm_client import get_llm
+        from src.infrastructure.llm_client import get_native_llm
 
         history_text = self._build_history_text(turns)
         prompt = _COMPACT_TEMPLATE.replace("{history}", history_text)
 
-        llm    = get_llm(temperature=0.0)
-        result = llm.invoke(prompt)
-        return str(result.content)
+        llm    = get_native_llm(temperature=0.0)
+        result = llm.invoke([{"role": "user", "content": prompt}])
+        return str(result.get("content") or "")

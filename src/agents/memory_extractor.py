@@ -69,7 +69,7 @@ def _is_duplicate(slug: str, title: str, description: str, memory_type: str) -> 
         3. description 相似：同类型文件中词重叠率 > _SIMILARITY_THRESHOLD
     """
     try:
-        from src.core.long_term_memory import LongTermMemory
+        from src.infrastructure.long_term_memory import LongTermMemory
         ltm          = LongTermMemory.get_instance()
         memory_dir   = ltm._memory_dir
 
@@ -116,12 +116,17 @@ def _call_extractor_llm(user_input: str, ai_response: str) -> Optional[dict]:
         解析后的 dict（含 should_save 字段），或 None（调用/解析失败）
     """
     try:
-        from src.infrastructure.llm_client import get_llm
+        from src.infrastructure.llm_client import get_native_llm
 
-        prompt  = _EXTRACTOR_TEMPLATE.replace("{user_input}", user_input).replace("{ai_response}", ai_response)
-        llm     = get_llm(temperature=0.0)
-        result  = llm.invoke(prompt)
-        content = str(result.content).strip()
+        sys_prompt = _EXTRACTOR_TEMPLATE
+        human_content = f"用户输入：{user_input}\n\nAI 回复：{ai_response}"
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user",   "content": human_content},
+        ]
+        llm     = get_native_llm(temperature=0.0)
+        result  = llm.invoke(messages)
+        content = str(result.get("content") or "").strip()
 
         # 提取 JSON（兼容被 markdown 包裹的情况）
         json_match = re.search(r"\{.*?\}", content, re.DOTALL)
@@ -176,7 +181,7 @@ def extract_and_save_memory(
             logger.warning("后台 extractor：LLM 返回 title/body 为空，跳过")
             return
 
-        from src.core.long_term_memory import LongTermMemory, _slugify
+        from src.infrastructure.long_term_memory import LongTermMemory, _slugify
         slug = _slugify(title)
 
         # 去重检查（三层）：传入真实 description 而非 title

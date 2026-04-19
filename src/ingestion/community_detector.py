@@ -8,17 +8,13 @@ from dataclasses import dataclass
 
 import community as community_louvain
 import networkx as nx
-from langchain_core.prompts import ChatPromptTemplate
 
 from src.agents.prompt_loader import load_prompt_pair
 from src.storage.graph_store import GraphStore
-from src.infrastructure.llm_client import get_llm
+from src.infrastructure.llm_client import get_native_llm
 
 
 _sys, _human = load_prompt_pair("community_summary")
-_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _sys), ("human", _human)]
-)
 
 
 @dataclass
@@ -32,8 +28,9 @@ class CommunityStats:
 class CommunityDetector:
     def __init__(self, graph_store: GraphStore) -> None:
         self.graph_store = graph_store
-        self.llm = get_llm(temperature=0.1)
-        self.chain = _SUMMARY_PROMPT | self.llm
+        self._llm = get_native_llm(temperature=0.1)
+        self._sys_prompt  = _sys
+        self._human_tmpl  = _human
 
     @staticmethod
     def _community_id(label: int) -> str:
@@ -103,8 +100,12 @@ class CommunityDetector:
                 continue
 
             entities_text = self._format_entities(entity_ids, entity_info)
-            message = self.chain.invoke({"entities": entities_text})
-            summary = str(message.content).strip()
+            messages = [
+                {"role": "system", "content": self._sys_prompt},
+                {"role": "user",   "content": self._human_tmpl.format(entities=entities_text)},
+            ]
+            resp    = self._llm.invoke(messages)
+            summary = str(resp.get("content") or "").strip()
             community_id = self._community_id(label)
 
             self.graph_store.create_community_node(

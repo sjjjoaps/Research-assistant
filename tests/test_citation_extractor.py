@@ -162,7 +162,7 @@ class TestParseReferenceLLM:
     def _extractor_with_mock_llm(self, response_content: str) -> CitationExtractor:
         e = CitationExtractor.__new__(CitationExtractor)
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content=response_content)
+        mock_llm.invoke.return_value = {"content": response_content}
         e._llm = mock_llm
         return e
 

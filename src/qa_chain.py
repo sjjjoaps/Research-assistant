@@ -2,24 +2,18 @@
 基础 RAG 问答链
 流程：检索 -> 拼接上下文 -> LLM 生成 -> 返回答案与来源
 """
-from langchain_core.prompts import ChatPromptTemplate
-
 from src.agents.prompt_loader import load_prompt_pair
-from src.infrastructure.llm_client import get_llm
+from src.infrastructure.llm_client import get_native_llm
 from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
 
 
 _qa_sys, _qa_human = load_prompt_pair("qa_chain")
-_QA_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _qa_sys), ("human", _qa_human)]
-)
 
 
 class QAChain:
     def __init__(self, top_k: int = 3) -> None:
         self.retriever = SemanticRetriever(top_k=top_k)
-        self.llm = get_llm(temperature=0.1)
-        self.chain = _QA_PROMPT | self.llm
+        self._llm = get_native_llm(temperature=0.1)
 
     @staticmethod
     def _build_context(chunks: list[RetrievedChunk]) -> tuple[str, list[str]]:
@@ -46,8 +40,11 @@ class QAChain:
                 "sources": [],
             }
 
-        message = self.chain.invoke({"question": question, "context": context})
+        resp = self._llm.invoke([
+            {"role": "system", "content": _qa_sys},
+            {"role": "user",   "content": _qa_human.format(question=question, context=context)},
+        ])
         return {
-            "answer": message.content,
+            "answer": str(resp.get("content") or "").strip(),
             "sources": sources,
         }

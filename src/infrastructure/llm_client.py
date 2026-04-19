@@ -86,13 +86,18 @@ class LLMClient:
         tools: list[dict] | None = None,
     ) -> dict:
         """
-        非流式调用，返回第一个 choice 的 message dict。
+        非流式调用，返回第一个 choice 的 message dict，并附加顶层 usage。
 
         返回格式：
           {
             "role": "assistant",
             "content": "...",          # 文本回复（可为 None）
             "tool_calls": [...] | None # 工具调用列表
+            "usage": {                 # token 用量（来自顶层 resp.usage）
+              "prompt_tokens": int,
+              "completion_tokens": int,
+              "total_tokens": int,
+            }
           }
         """
         kwargs: dict = dict(
@@ -104,7 +109,23 @@ class LLMClient:
             kwargs["tools"] = tools
 
         resp = await self._client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.model_dump()
+        result = resp.choices[0].message.model_dump()
+        if resp.usage:
+            result["usage"] = {
+                "prompt_tokens":     resp.usage.prompt_tokens,
+                "completion_tokens": resp.usage.completion_tokens,
+                "total_tokens":      resp.usage.total_tokens,
+            }
+        return result
+
+    def invoke(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+    ) -> dict:
+        """同步调用包装，供非 async 上下文（daemon thread / 同步代码）使用。"""
+        import asyncio
+        return asyncio.run(self.ainvoke(messages, tools))
 
     @property
     def model_name(self) -> str:

@@ -175,9 +175,8 @@ class KeywordExtractor:
 
     def _get_llm(self):
         if self._llm is None:
-            from src.infrastructure.llm_client import get_llm
-
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_native_llm
+            self._llm = get_native_llm(temperature=0.0)
         return self._llm
 
     def extract(self, query: str) -> KeywordResult:
@@ -287,8 +286,8 @@ class KeywordExtractor:
         try:
             llm = self._get_llm()
             prompt = _LLM_PROMPT.format(query=query[:_MAX_QUERY_LENGTH])
-            response = llm.invoke(prompt)
-            content = str(response.content).strip()
+            response = llm.invoke([{"role": "user", "content": prompt}])
+            content = str(response.get("content") or "").strip()
             if "```" in content:
                 content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()
 

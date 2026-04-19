@@ -69,8 +69,8 @@ class CitationExtractor:
 
     def _get_llm(self):
         if self._llm is None:
-            from src.infrastructure.llm_client import get_llm
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_native_llm
+            self._llm = get_native_llm(temperature=0.0)
         return self._llm
 
     def extract(self, raw_text: str) -> list[CitationRecord]:
@@ -145,8 +145,8 @@ class CitationExtractor:
         try:
             llm = self._get_llm()
             prompt = _LLM_PROMPT.format(text=ref_text[:500])
-            response = llm.invoke(prompt)
-            content = response.content.strip()
+            resp    = llm.invoke([{"role": "user", "content": prompt}])
+            content = str(resp.get("content") or "").strip()
             # 提取 JSON（可能被 markdown 代码块包裹）
             if "```" in content:
                 content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()

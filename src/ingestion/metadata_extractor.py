@@ -6,12 +6,12 @@
 import re
 from typing import Optional
 
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agents.prompt_loader import load_prompt_pair
 from src.ingestion.document_parser import ParsedDocument
-from src.infrastructure.llm_client import get_llm
+from src.infrastructure.llm_client import get_native_llm
+from src.infrastructure.json_utils import extract_json
 
 
 # ── 元数据数据结构 ────────────────────────────────────────────────────────────
@@ -28,9 +28,6 @@ class DocumentMetadata(BaseModel):
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
 _meta_sys, _meta_human = load_prompt_pair("metadata_extractor")
-_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _meta_sys), ("human", _meta_human)]
-)
 
 
 # ── 正则降级提取 ──────────────────────────────────────────────────────────────
@@ -69,22 +66,23 @@ def _regex_extract(text: str) -> DocumentMetadata:
 
 class MetadataExtractor:
     def __init__(self) -> None:
-        llm = get_llm(temperature=0.0)
-        # with_structured_output 让 LLM 直接返回 Pydantic 模型
-        self._chain = _PROMPT | llm.with_structured_output(DocumentMetadata)
+        self._llm = get_native_llm(temperature=0.0)
 
     def extract(self, document: ParsedDocument) -> DocumentMetadata:
         """
         从 ParsedDocument 中提取元数据。
         取首页前 5000 字符送入 LLM；失败时降级为正则提取。
         """
-        # 优先取第一页，没有则取全文开头
         first_page = document.pages[0] if document.pages else document.raw_text
         context = first_page[:5000]
-    
+
         try:
-            result = self._chain.invoke({"context": context})
-            return result
+            resp = self._llm.invoke([
+                {"role": "system", "content": _meta_sys},
+                {"role": "user",   "content": _meta_human.format(context=context)},
+            ])
+            content = str(resp.get("content") or "").strip()
+            return DocumentMetadata(**extract_json(content))
         except Exception as e:
             print(f"[MetadataExtractor] LLM 提取失败，降级为正则提取。原因: {e}")
             return _regex_extract(context)

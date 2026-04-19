@@ -28,7 +28,6 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from langchain_core.messages import HumanMessage
 
 from src.agents.prompt_loader import load_prompt_pair
 
@@ -90,8 +89,8 @@ class ImageProcessor(BaseModalProcessor):
 
     def _get_llm(self):
         if self._llm is None:
-            from src.infrastructure.llm_client import get_llm
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_native_llm
+            self._llm = get_native_llm(temperature=0.0)
         return self._llm
 
     def process(self, raw_content: str, page_number: int, position_hint: str, caption: str = "") -> str:
@@ -108,12 +107,12 @@ class ImageProcessor(BaseModalProcessor):
                 position_hint=position_hint,
                 page_number=page_number + 1,
             )
-            message = HumanMessage(content=[
+            messages = [{"role": "user", "content": [
                 {"type": "text", "text": f"{self._SYSTEM_PROMPT}\n\n{prompt}"},
                 {"type": "image_url", "image_url": {"url": raw_content}},
-            ])
-            response = llm.invoke([message])
-            return response.content.strip()
+            ]}]
+            resp = llm.invoke(messages)
+            return str(resp.get("content") or "").strip()
         except Exception as e:
             logger.debug("图片描述生成失败（%s）: %s", position_hint, e)
             return ""
@@ -133,8 +132,8 @@ class TableProcessor(BaseModalProcessor):
 
     def _get_llm(self):
         if self._llm is None:
-            from src.infrastructure.llm_client import get_llm
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_native_llm
+            self._llm = get_native_llm(temperature=0.0)
         return self._llm
 
     def process(self, raw_content: str, page_number: int, position_hint: str, caption: str = "") -> str:
@@ -146,7 +145,7 @@ class TableProcessor(BaseModalProcessor):
         try:
             llm = self._get_llm()
             caption_hint = f"表格标题：{caption}\n" if caption else ""
-            prompt = (
+            content = (
                 f"{self._SYSTEM_PROMPT}\n\n"
                 + self._HUMAN_PROMPT.format(
                     caption_hint=caption_hint,
@@ -155,8 +154,8 @@ class TableProcessor(BaseModalProcessor):
                     raw_content=raw_content,
                 )
             )
-            response = llm.invoke(prompt)
-            return response.content.strip()
+            resp = llm.invoke([{"role": "user", "content": content}])
+            return str(resp.get("content") or "").strip()
         except Exception as e:
             logger.debug("表格描述生成失败（%s）: %s", position_hint, e)
             return ""

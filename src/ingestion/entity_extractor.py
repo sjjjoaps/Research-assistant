@@ -19,14 +19,14 @@ from hashlib import md5
 import re
 import unicodedata
 
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agents.prompt_loader import load_prompt_pair
 from src.ingestion.chunker import TextChunk
 from src.storage.graph_store import GraphStore
 from src.ingestion.description_merger import DescriptionMerger
-from src.infrastructure.llm_client import get_llm
+from src.infrastructure.llm_client import get_native_llm
+from src.infrastructure.json_utils import extract_json
 from src.storage.relation_vector_store import RelationVectorRecord
 
 
@@ -49,9 +49,6 @@ class ExtractionResult(BaseModel):
 
 
 _sys, _human = load_prompt_pair("relation_extractor")
-_PROMPT = ChatPromptTemplate.from_messages(
-    [("system", _sys), ("human", _human)]
-)
 
 
 @dataclass
@@ -68,8 +65,7 @@ class EntityExtractor:
     def __init__(self, graph_store: GraphStore) -> None:
         self.graph_store = graph_store
         self._merger = DescriptionMerger()
-        llm = get_llm(temperature=0.0)
-        self._chain = _PROMPT | llm.with_structured_output(ExtractionResult)
+        self._llm = get_native_llm(temperature=0.0)
 
     @staticmethod
     def _normalize_name(name: str) -> str:
@@ -110,7 +106,12 @@ class EntityExtractor:
         effective_chunks = chunks[:max_chunks] if max_chunks is not None else chunks
 
         for chunk in effective_chunks:
-            result = self._chain.invoke({"text": chunk.content})
+            resp = self._llm.invoke([
+                {"role": "system", "content": _sys},
+                {"role": "user",   "content": _human.format(text=chunk.content)},
+            ])
+            content = str(resp.get("content") or "").strip()
+            result = ExtractionResult(**extract_json(content))
             stats.processed_chunks += 1
 
             name_to_entity_id: dict[str, str] = {}
