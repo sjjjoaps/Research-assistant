@@ -77,11 +77,26 @@ export type SSEEvent =
   | DoneEvent
   | ErrorEvent
 
-export interface Source {
+export interface SourceObject {
   file_path: string
-  chunk_index: number
+  chunk_index?: number
   content?: string
   section_type?: string
+}
+
+// Backend may send plain file-path strings or structured objects
+export type Source = string | SourceObject
+
+export function sourceFilePath(s: Source): string {
+  return typeof s === 'string' ? s : s.file_path
+}
+
+export function sourceContent(s: Source): string | undefined {
+  return typeof s === 'string' ? undefined : s.content
+}
+
+export function sourceSectionType(s: Source): string | undefined {
+  return typeof s === 'string' ? undefined : s.section_type
 }
 
 // Matches backend DocumentItem schema
