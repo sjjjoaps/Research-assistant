@@ -63,5 +63,9 @@ class Settings(BaseSettings):
     reranker_timeout: int = Field(default=10, alias="RERANKER_TIMEOUT")
     reranker_max_candidates: int = Field(default=50, alias="RERANKER_MAX_CANDIDATES")
 
+    # ToolCallLimiter（P5-Step 1.5）
+    tool_call_max_per_window: int = Field(default=5, alias="TOOL_CALL_MAX_PER_WINDOW")
+    tool_call_window_seconds: float = Field(default=60.0, alias="TOOL_CALL_WINDOW_SECONDS")
+
 
 settings = Settings()

@@ -28,12 +28,149 @@ Phase 9-5 长期记忆集成：
 """
 from __future__ import annotations
 
+import inspect
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
+from typing import Callable, get_args, get_origin
 
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# P5-Step 1：原生 Tool 对象与工具注册表（并行实现，不修改旧路径）
+# ════════════════════════════════════════════════════════════════════════════
+
+# 手动维护枚举约束（函数签名中 str 类型但实际有枚举值的参数）
+_PARAM_ENUMS: dict[str, list[str]] = {
+    "mode": ["auto", "dual", "local", "global", "mix", "hybrid", "semantic"],
+    "retriever_mode": ["semantic", "hybrid", "graph", "local", "global", "mix"],
+    "section_filter": ["abstract", "introduction", "method", "experiment",
+                       "conclusion", "related_work", "other", ""],
+    "memory_type": ["preference", "rule", "note"],
+}
+
+_PY_TO_JSON: dict[type, str] = {
+    str: "string",
+    int: "integer",
+    bool: "boolean",
+    float: "number",
+}
+
+
+def _annotation_to_prop(annotation: type, param_name: str = "") -> dict:
+    """
+    将单个类型注解递归转换为 JSON Schema property dict。
+
+    处理顺序：
+      1. Optional[X] / X | None  → 解包后递归处理 X
+      2. list[X]                 → {"type": "array", "items": ...}
+      3. Literal["a", "b"]       → {"type": "string", "enum": [...]}
+      4. _PARAM_ENUMS 手动枚举表  → {"type": "string", "enum": [...]}
+      5. 标量类型映射              → {"type": "string/integer/boolean/number"}
+    """
+    import types as _types
+
+    origin = get_origin(annotation)
+    args   = get_args(annotation)
+
+    # 1. Union / Optional — 解包非 None 分支后递归
+    if origin is not None:
+        is_union = (
+            origin is _types.UnionType
+            or str(origin) in ("typing.Union", "<class 'typing.Union'>")
+        )
+        if is_union:
+            non_none = [a for a in args if a is not type(None)]
+            inner = non_none[0] if non_none else str
+            return _annotation_to_prop(inner, param_name)
+
+        # 2. list[X]
+        if origin is list:
+            item_type = args[0] if args else str
+            item_prop = _annotation_to_prop(item_type)
+            return {"type": "array", "items": item_prop}
+
+        # 3. Literal["a", "b"]
+        if str(origin) == "typing.Literal" or (
+            hasattr(origin, "__name__") and origin.__name__ == "Literal"
+        ):
+            return {"type": "string", "enum": list(args)}
+
+    # 3b. Literal 直接作为 annotation（Python 3.8 兼容路径）
+    if get_origin(annotation) is not None:
+        inner_origin = get_origin(annotation)
+        if str(inner_origin) == "typing.Literal":
+            return {"type": "string", "enum": list(get_args(annotation))}
+
+    # 4. _PARAM_ENUMS 手动枚举表（优先于标量映射）
+    if param_name and param_name in _PARAM_ENUMS:
+        return {"type": "string", "enum": _PARAM_ENUMS[param_name]}
+
+    # 5. 标量类型映射
+    return {"type": _PY_TO_JSON.get(annotation, "string")}
+
+
+def _infer_schema(func: Callable) -> dict:
+    """从函数签名自动生成 JSON Schema（properties + required）。"""
+    sig = inspect.signature(func)
+    properties: dict = {}
+    required: list[str] = []
+
+    for name, param in sig.parameters.items():
+        annotation  = param.annotation
+        has_default = param.default is not inspect.Parameter.empty
+
+        if annotation is inspect.Parameter.empty:
+            annotation = str
+
+        properties[name] = _annotation_to_prop(annotation, name)
+        if not has_default:
+            required.append(name)
+
+    schema: dict = {"type": "object", "properties": properties}
+    if required:
+        schema["required"] = required
+    return schema
+
+
+@dataclass
+class Tool:
+    """原生工具对象，替代 LangChain StructuredTool。"""
+    name: str
+    description: str
+    func: Callable
+    parameters: dict
+
+    @property
+    def args_schema(self) -> dict:
+        """兼容现有测试中 t.args_schema 断言。"""
+        return self.parameters
+
+    def invoke(self, input_dict: dict) -> str:
+        """统一调用入口，供 MasterAgent 工具循环使用。"""
+        return self.func(**input_dict)
+
+    def to_openai_schema(self) -> dict:
+        """导出 OpenAI function calling 所需的 JSON Schema。"""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+
+def _make_tool(name: str, func: Callable) -> Tool:
+    """从函数名和函数体构造 Tool 对象，描述优先从 prompt/tools/{name}.md 加载。"""
+    from src.agents.tool_prompt_loader import load_tool_description
+    description = load_tool_description(name, fallback=func.__doc__ or "")
+    parameters = _infer_schema(func)
+    return Tool(name=name, description=description, func=func, parameters=parameters)
 
 # ── 顶层导入（供测试 Mock 使用）─────────────────────────────────────────────
 # 采用懒加载避免循环依赖，但同时在模块层面暴露引用，使 unittest.mock.patch 可用。
@@ -786,4 +923,278 @@ def build_tool_registry() -> list:
         save_user_memory,
     ]
     logger.info("工具注册完成：%s", [t.name for t in tools])
+    return tools
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# P5-Step 1：原生工具业务函数（_xxx_func 命名，与 @tool 版本共存）
+# ════════════════════════════════════════════════════════════════════════════
+
+def _retrieve_knowledge_func(
+    query: str,
+    mode: str = "auto",
+    top_k: int = 5,
+    section_filter: str = "",
+    year_from: int = 0,
+    year_to: int = 0,
+) -> str:
+    """从已入库的学术文献知识库中检索相关内容。"""
+    try:
+        chunks = _do_retrieve(query=query, mode=mode, top_k=top_k,
+                              section_filter=section_filter,
+                              year_from=year_from, year_to=year_to)
+        if not chunks:
+            return (
+                "【检索结果为空】\n"
+                "在知识库中未找到与查询相关的内容。\n"
+                "建议：1) 尝试换用其他 mode 参数；2) 通过文献管理页面入库相关文献后再检索。"
+            )
+        return _format_chunks(chunks)
+    except Exception as exc:
+        logger.error("retrieve_knowledge 执行失败: %s", exc, exc_info=True)
+        return f"[检索失败] {exc}\n请尝试换用其他参数或稍后重试。"
+
+
+def _deep_research_func(
+    question: str,
+    retriever_mode: str = "mix",
+    max_subquestions: int = 3,
+    use_community: bool = False,
+) -> str:
+    """对复杂研究问题进行多步骤深度研究，生成结构化研究报告。"""
+    try:
+        from src.agents.deep_research_agent import DeepResearchAgent
+        import uuid
+        valid_modes = {"semantic", "hybrid", "graph", "local", "global", "mix"}
+        rm = retriever_mode if retriever_mode in valid_modes else "mix"
+        agent = DeepResearchAgent(
+            max_subquestions=max_subquestions,
+            retriever_mode=rm,
+            use_community=use_community,
+        )
+        thread_id = f"tool_{uuid.uuid4().hex[:8]}"
+        report = agent.research(thread_id=thread_id, question=question)
+        return report.final_report or "深度研究完成，但未能生成报告文本。"
+    except Exception as exc:
+        logger.error("deep_research 执行失败: %s", exc, exc_info=True)
+        return (
+            f"[深度研究失败] {exc}\n"
+            "可能原因：知识库尚无相关文献，或检索器初始化失败。\n"
+            "建议：先用 list_documents 确认知识库内容，再重试。"
+        )
+
+
+def _generate_research_ideas_func(topic: str, research_report: str = "") -> str:
+    """基于研究报告或主题生成创新研究 Idea。"""
+    try:
+        from src.agents.idea_agent import IdeaAgent
+        agent = IdeaAgent()
+        if research_report.strip():
+            idea_report = agent.generate_from_markdown(
+                question=topic, report_markdown=research_report,
+            )
+        else:
+            from src.agents.deep_research_agent import DeepResearchAgent
+            import uuid
+            dr_agent = DeepResearchAgent(max_subquestions=2, retriever_mode="mix")
+            thread_id = f"idea_{uuid.uuid4().hex[:8]}"
+            dr_report = dr_agent.research(thread_id=thread_id, question=topic)
+            idea_report = agent.generate(question=topic, report=dr_report)
+        return IdeaAgent.to_markdown(idea_report)
+    except Exception as exc:
+        logger.error("generate_research_ideas 执行失败: %s", exc, exc_info=True)
+        return (
+            f"[Idea 生成失败] {exc}\n"
+            "建议：先调用 deep_research 获取报告，再将报告传入此工具。"
+        )
+
+
+def _list_documents_func(keyword: str = "", limit: int = 20) -> str:
+    """列出知识库中已入库的文献清单，支持关键词筛选。"""
+    try:
+        import src.agents.tool_registry as _m
+        _DB = _m.MetadataDatabase
+        if _DB is None:
+            from src.storage.database import MetadataDatabase as _DB
+        db = _DB()
+        all_docs = db.list_documents()
+        if keyword.strip():
+            kw = keyword.strip().lower()
+            all_docs = [
+                d for d in all_docs
+                if (kw in (d.title or "").lower()
+                    or kw in (d.authors or "").lower()
+                    or kw in (d.abstract or "").lower()
+                    or kw in (d.keywords or "").lower())
+            ]
+        if not all_docs:
+            hint = f"（关键词 '{keyword}' 过滤后）" if keyword else ""
+            return f"知识库{hint}中暂无文献。请通过文献管理页面入库相关文献。"
+        total = len(all_docs)
+        docs = all_docs[:limit]
+        lines = [f"**知识库文献清单**（共 {total} 篇，显示前 {len(docs)} 篇）：\n"]
+        for i, doc in enumerate(docs, start=1):
+            title   = doc.title or "（无标题）"
+            authors = doc.authors or "未知作者"
+            year    = str(doc.year) if doc.year else "年份未知"
+            doc_id  = doc.doc_id or doc.file_path or "?"
+            lines.append(f"{i}. **{title}** — {authors}，{year}  \n   ID: `{doc_id}`")
+        if total > limit:
+            lines.append(f"\n_（还有 {total - limit} 篇未显示，可通过 keyword 参数缩小范围）_")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("list_documents 执行失败: %s", exc, exc_info=True)
+        return f"[查询失败] {exc}"
+
+
+def _get_document_metadata_func(doc_title_or_id: str) -> str:
+    """获取特定文献的详细元数据。"""
+    try:
+        import src.agents.tool_registry as _m
+        _DB = _m.MetadataDatabase
+        if _DB is None:
+            from src.storage.database import MetadataDatabase as _DB
+        db = _DB()
+        doc = db.get_document_by_doc_id(doc_title_or_id)
+        if doc is None:
+            kw = doc_title_or_id.strip().lower()
+            all_docs = db.list_documents()
+            matched = [d for d in all_docs if kw in (d.title or "").lower()]
+            if not matched:
+                return (
+                    f"未找到与 '{doc_title_or_id}' 匹配的文献。\n"
+                    "建议：先用 list_documents 查看已入库文献列表。"
+                )
+            doc = matched[0]
+            extra = (
+                f"\n\n_（另找到 {len(matched)-1} 篇相似文献，如需查看请缩小关键词）_"
+                if len(matched) > 1 else ""
+            )
+        else:
+            extra = ""
+        lines = [f"## 文献详情：{doc.title or '（无标题）'}"]
+        lines.append(f"- **作者**：{doc.authors or '未知'}")
+        lines.append(f"- **年份**：{doc.year or '未知'}")
+        lines.append(f"- **机构**：{doc.institution or '未知'}")
+        lines.append(f"- **关键词**：{doc.keywords or '未知'}")
+        lines.append(f"- **Doc ID**：`{doc.doc_id or '?'}`")
+        lines.append(f"- **文件路径**：`{doc.file_path}`")
+        if doc.abstract:
+            lines.append(f"\n**摘要**：\n{doc.abstract}")
+        return "\n".join(lines) + extra
+    except Exception as exc:
+        logger.error("get_document_metadata 执行失败: %s", exc, exc_info=True)
+        return f"[查询失败] {exc}"
+
+
+def _search_by_entity_func(entity_name: str, relation_type: str = "") -> str:
+    """在知识图谱中查询实体及其关联关系。"""
+    try:
+        import src.agents.tool_registry as _m
+        _GS = _m.GraphStore
+        if _GS is None:
+            from src.storage.graph_store import GraphStore as _GS
+        gs = _GS()
+        subgraph = gs.get_subgraph(
+            entity_name=entity_name,
+            relation_type=relation_type if relation_type else None,
+        )
+        gs.close()
+        nodes     = subgraph.get("nodes", [])
+        relations = subgraph.get("relations", [])
+        if not nodes and not relations:
+            return (
+                f"未在知识图谱中找到实体 '{entity_name}' 的相关信息。\n"
+                "建议：确认实体名称是否正确，或知识图谱尚未提取该实体。"
+            )
+        lines = [f"**实体查询结果：{entity_name}**\n"]
+        if nodes:
+            lines.append(f"**实体节点（{len(nodes)} 个）：**")
+            for n in nodes[:10]:
+                name  = n.get("name") or n.get("id", "?")
+                ntype = n.get("type") or n.get("entity_type", "")
+                desc  = n.get("description", "")
+                tag   = f"（{ntype}）" if ntype else ""
+                lines.append(f"- **{name}**{tag}" + (f"：{desc}" if desc else ""))
+        if relations:
+            lines.append(f"\n**关联关系（{len(relations)} 条）：**")
+            for r in relations[:15]:
+                src   = r.get("source") or r.get("from", "?")
+                rtype = r.get("type") or r.get("relation_type", "关联")
+                tgt   = r.get("target") or r.get("to", "?")
+                desc  = r.get("description", "")
+                lines.append(f"- `{src}` —[{rtype}]→ `{tgt}`" + (f"：{desc}" if desc else ""))
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("search_by_entity 执行失败: %s", exc, exc_info=True)
+        return f"[知识图谱查询失败] {exc}"
+
+
+def _get_knowledge_graph_stats_func() -> str:
+    """获取知识图谱的统计信息。"""
+    try:
+        import src.agents.tool_registry as _m
+        _GS = _m.GraphStore
+        if _GS is None:
+            from src.storage.graph_store import GraphStore as _GS
+        _DB = _m.MetadataDatabase
+        if _DB is None:
+            from src.storage.database import MetadataDatabase as _DB
+        gs    = _GS()
+        stats = gs.get_graph_stats()
+        gs.close()
+        db        = _DB()
+        doc_count = len(db.list_documents())
+        lines = ["**知识图谱统计信息**\n", "| 指标 | 数量 |", "|------|------|",
+                 f"| 已入库文献 | {doc_count} 篇 |"]
+        label_map = {
+            "node_count": "图谱节点总数", "entity_count": "实体节点数",
+            "document_count": "文档节点数", "chunk_count": "文本块节点数",
+            "relation_count": "关系总数", "community_count": "社区数",
+        }
+        for key, val in stats.items():
+            lines.append(f"| {label_map.get(key, key)} | {val} |")
+        return "\n".join(lines)
+    except Exception as exc:
+        logger.error("get_knowledge_graph_stats 执行失败: %s", exc, exc_info=True)
+        return f"[统计信息获取失败] {exc}\n知识图谱服务可能未启动，请检查 Neo4j 连接。"
+
+
+def _save_user_memory_func(title: str, body: str, memory_type: str = "preference") -> str:
+    """将用户明确要求持久化的偏好、规则或重要信息保存到长期记忆中。"""
+    _ALLOWED_TYPES = {"preference", "rule", "note"}
+    if memory_type not in _ALLOWED_TYPES:
+        memory_type = "preference"
+    try:
+        from src.infrastructure.long_term_memory import LongTermMemory, _slugify
+        ltm  = LongTermMemory.get_instance()
+        slug = _slugify(title)
+        first_line = body.strip().splitlines()[0].strip() if body.strip() else title
+        description = first_line[:100]
+        ltm.save_memory(
+            title=title, slug=slug, description=description, body=body,
+            metadata={"type": memory_type, "source": "user_explicit"},
+        )
+        logger.info("save_user_memory: 已写入记忆 %s.md", slug)
+        return f"[记忆已保存] 标题：{title}，文件：{slug}.md"
+    except Exception as exc:
+        logger.error("save_user_memory 执行失败: %s", exc, exc_info=True)
+        return f"[记忆保存失败] {exc}"
+
+
+@lru_cache(maxsize=1)
+def build_native_tool_registry() -> list[Tool]:
+    """原生工具注册表（P5-Step 1 新增，与 build_tool_registry() 并行存在）。"""
+    _defs: list[tuple[str, Callable]] = [
+        ("retrieve_knowledge",        _retrieve_knowledge_func),
+        ("deep_research",             _deep_research_func),
+        ("generate_research_ideas",   _generate_research_ideas_func),
+        ("list_documents",            _list_documents_func),
+        ("get_document_metadata",     _get_document_metadata_func),
+        ("search_by_entity",          _search_by_entity_func),
+        ("get_knowledge_graph_stats", _get_knowledge_graph_stats_func),
+        ("save_user_memory",          _save_user_memory_func),
+    ]
+    tools = [_make_tool(name, func) for name, func in _defs]
+    logger.info("原生工具注册完成：%s", [t.name for t in tools])
     return tools

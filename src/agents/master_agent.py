@@ -487,6 +487,12 @@ class MasterAgent:
         tool_name = tool_call.get("name", "")
         tool_args = tool_call.get("args", {})
 
+        # TODO P5-Step 4：切换到原生工具路径后，在此处调用 ToolCallLimiter.check()：
+        #   if not self._limiter.check(session_id, tool_name):
+        #       return self._limiter.reject_message(tool_name)
+        # ToolCallLimiter 已实现（src/agents/tool_call_limiter.py），待 MasterAgent
+        # 切换至 build_native_tool_registry() + LLMClient 后统一接入。
+
         tool_func = _get_tool_func(tool_name, self.tools)
         if tool_func is None:
             return f"[错误] 未知工具：{tool_name}。请使用已注册的工具之一。"
