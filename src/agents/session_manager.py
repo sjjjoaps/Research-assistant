@@ -55,14 +55,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-)
-
 from src.infrastructure.config import settings
 from src.agents.prompt_loader import load_system_prompt
 
@@ -74,45 +66,35 @@ _COMPACT_TEMPLATE = load_system_prompt("session_compact")
 
 # ── 消息序列化 / 反序列化 ──────────────────────────────────────────────────────
 
-def _serialize_message(msg: BaseMessage) -> dict:
-    """将 LangChain BaseMessage 序列化为可 JSON 存储的 dict。"""
-    base: dict = {"role": msg.type, "content": msg.content}
+def _serialize_message(msg: dict) -> dict:
+    """
+    P5-Step4：消息已是原生 dict，直接返回（保留向后兼容的字段规范化）。
 
-    if isinstance(msg, AIMessage) and msg.tool_calls:
-        base["tool_calls"] = [
-            {
-                "id":   tc.get("id", ""),
-                "name": tc.get("name", ""),
-                "args": tc.get("args", {}),
-            }
-            for tc in msg.tool_calls
-        ]
-
-    if isinstance(msg, ToolMessage):
-        base["tool_call_id"] = msg.tool_call_id
-
-    return base
+    存储格式（OpenAI 原生）：
+      {"role": "user"|"assistant"|"system"|"tool", "content": "..."}
+      assistant 含工具调用时附加 "tool_calls": [...]
+      tool 消息附加 "tool_call_id": "..."
+    """
+    if not isinstance(msg, dict):
+        raise TypeError(f"消息必须是 dict，实际类型: {type(msg)}")
+    return msg
 
 
-def _deserialize_message(data: dict) -> BaseMessage:
-    """将 JSON dict 反序列化为 LangChain BaseMessage。"""
-    role    = data.get("role", "human")
-    content = data.get("content", "")
+def _deserialize_message(data: dict) -> dict:
+    """
+    P5-Step4：从 JSONL 读取的 dict 直接返回，兼容旧版 LangChain role 名称。
 
+    旧版 JSONL 使用 LangChain role 名称（human/ai），新版使用 OpenAI 标准（user/assistant）。
+    此处做规范化，保证 load() 返回的消息列表统一使用 OpenAI 标准 role。
+    """
+    data = dict(data)
+    role = data.get("role", "user")
+    # 兼容旧版 LangChain role 名称
     if role == "human":
-        return HumanMessage(content=content)
-    if role == "ai":
-        return AIMessage(content=content, tool_calls=data.get("tool_calls", []))
-    if role == "system":
-        return SystemMessage(content=content)
-    if role == "tool":
-        return ToolMessage(
-            content=content,
-            tool_call_id=data.get("tool_call_id", ""),
-        )
-    # 未知类型：fallback 到 HumanMessage，避免崩溃
-    logger.warning("未知消息 role=%r，已 fallback 为 HumanMessage", role)
-    return HumanMessage(content=content)
+        data["role"] = "user"
+    elif role == "ai":
+        data["role"] = "assistant"
+    return data
 
 
 # ── SessionManager ─────────────────────────────────────────────────────────
@@ -264,20 +246,22 @@ class SessionManager:
 
     # ── 公开接口 ──────────────────────────────────────────────────────────────
 
-    def load(self, session_id: str) -> list[BaseMessage]:
+    def load(self, session_id: str) -> list[dict]:
         """
         从 JSONL 恢复消息历史，进程重启后可恢复。
+
+        P5-Step4：返回原生 dict 列表（OpenAI 标准 role），不再返回 LangChain BaseMessage。
 
         恢复逻辑（两次扫描）：
         1. 第一次扫描：收集所有 summary 记录中的 covers_turn_ids，
            构建"已压缩 turn_id 集合"（O(1) 成员判定，不依赖字符串顺序）
         2. 第二次扫描：跳过 turn_id 在集合中的旧轮，反序列化其余 messages
-        3. 将所有 summary 文本按时序合并为单条 SystemMessage 注入到列表头部
-           （[4] 不伪造 HumanMessage，[2] 保留多次压缩的完整历史）
+        3. 将所有 summary 文本按时序合并为单条 system 消息注入到列表头部
+           （不伪造 user 消息，保留多次压缩的完整历史）
 
         Returns:
-            list[BaseMessage] — 可直接追加到 MasterAgent 消息列表的历史记录
-                                （不含 MasterAgent 自身的 SystemMessage）
+            list[dict] — 可直接追加到 MasterAgent 消息列表的历史记录
+                         （不含 MasterAgent 自身的 system 提示）
         """
         records = self._read_all_records(session_id)
 
@@ -291,12 +275,12 @@ class SessionManager:
                 covered_turn_ids.update(record.get("covers_turn_ids", []))
 
         # ── 第二次扫描：跳过已压缩轮次，反序列化有效消息 ────────────────────
-        messages: list[BaseMessage] = []
+        messages: list[dict] = []
         for record in records:
             if record.get("type") != "messages":
                 continue
             turn_id = record.get("turn_id", "")
-            if turn_id in covered_turn_ids:   # [1] 集合成员判定，不用字符串比较
+            if turn_id in covered_turn_ids:
                 continue
             for msg_data in record.get("new_messages", []):
                 try:
@@ -306,25 +290,25 @@ class SessionManager:
                         "消息反序列化失败（已跳过）: %s | 数据: %s", exc, msg_data
                     )
 
-        # ── 构建 summary SystemMessage（[4] 干净语义，[2] 多次压缩不丢失）────
+        # ── 构建 summary system 消息（多次压缩不丢失）────
         if ordered_summaries:
             if len(ordered_summaries) == 1:
                 summary_content = ordered_summaries[0]["summary_text"]
             else:
-                # 多次压缩：按时序拼接，标注各轮覆盖范围
                 parts = [
                     f"[第 {i} 次压缩（涵盖 {len(s.get('covers_turn_ids', []))} 轮）]\n{s['summary_text']}"
                     for i, s in enumerate(ordered_summaries, start=1)
                 ]
                 summary_content = "\n\n".join(parts)
 
-            prefix: list[BaseMessage] = [
-                SystemMessage(
-                    content=(
+            prefix: list[dict] = [
+                {
+                    "role": "system",
+                    "content": (
                         "以下是之前对话的历史摘要，请基于此继续回答：\n\n"
                         + summary_content
-                    )
-                )
+                    ),
+                }
             ]
             return prefix + messages
 
@@ -334,7 +318,7 @@ class SessionManager:
         self,
         session_id:   str,
         user_input:   str,
-        new_messages: list[BaseMessage],
+        new_messages: list[dict],
         sources:      list[str],
         token_usage:  dict,
         cost_cny:     float = 0.0,
@@ -342,21 +326,21 @@ class SessionManager:
         """
         追加写入一行增量 JSONL 记录（原子操作，不可变）。
 
+        P5-Step4：new_messages 已是原生 dict 列表。
+
         Args:
             session_id:   会话 ID
             user_input:   本轮用户输入（用于生成摘要 / 会话标题）
-            new_messages: 本轮新增的 LangChain 消息（不含历史）
+            new_messages: 本轮新增的原生 dict 消息（不含历史）
             sources:      本轮引用的文献来源列表
             token_usage:  {"prompt": int, "completion": int, "total": int}
-            cost_cny:     本轮估算人民币费用（Phase 9-3）
+            cost_cny:     本轮估算人民币费用
         """
         now_iso = datetime.now(timezone.utc).isoformat()
-        # [3] 纳秒时间戳：即使同毫秒并发也不会碰撞
         turn_id = f"t{_time.time_ns()}"
-        # Phase 9-3: 统一 round，保证 JSONL 单轮记录与 meta 累计值精度一致
         normalized_cost = round(cost_cny, 6)
 
-        # 序列化消息
+        # 序列化消息（已是 dict，直接使用）
         serialized: list[dict] = []
         for msg in new_messages:
             try:
@@ -468,7 +452,7 @@ class SessionManager:
             ai_answer = ""
             for msg in reversed(turn.get("new_messages", [])):
                 if (
-                    msg.get("role") == "ai"
+                    msg.get("role") in {"assistant", "ai"}
                     and not msg.get("tool_calls")
                     and msg.get("content", "").strip()
                 ):

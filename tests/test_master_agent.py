@@ -1,5 +1,5 @@
 """
-测试 MasterAgent（Phase 8-5，Review 修订版）。
+测试 MasterAgent（P5-Step4 原生化版本）。
 
 测试内容（Mock LLM，不需要真实 API Key 和外部服务）：
 
@@ -7,20 +7,20 @@
   1. test_extract_sources               — [来源: xxx] 提取正确
   2. test_summarize_tool_result         — 工具结果摘要逻辑
   3. test_estimate_cost                 — 费用估算计算
-  4. test_accumulate_tool_calls_string  — [Fix-2] 字符串 args 拼接（真实流式场景）
-  5. test_accumulate_tool_calls_dict    — [Fix-2] dict args 覆盖（整块 dict 场景）
-  6. test_accumulate_tool_calls_multi   — [Fix-2] 多工具调用按 index 路由
-  7. test_finalize_tool_calls           — [Fix-2] 字符串 args 解析为 dict
-  8. test_accumulate_tokens_compat      — [Fix-4] 多字段名兼容
-  9. test_collect_new_messages_includes_human — [Fix-1] new_messages 包含 HumanMessage
+  4. test_accumulate_tool_calls_string  — 字符串 args 拼接（真实流式场景）
+  5. test_accumulate_tool_calls_dict    — dict args 覆盖（整块 dict 场景）
+  6. test_accumulate_tool_calls_multi   — 多工具调用按 index 路由
+  7. test_finalize_tool_calls           — 字符串 args 解析为 dict
+  8. test_accumulate_tokens_native      — 原生 OpenAI chunk.usage 读取
+  9. test_collect_new_messages_includes_user — new_messages 包含 user 消息
 
 Agent 集成测试（Mock LLM）：
   10. test_simple_greeting              — 无工具调用，事件序列正确
   11. test_single_tool_call             — 一次工具调用，text_delta 仅在最终轮推送
   12. test_multi_tool_calls             — 两轮工具调用
   13. test_tool_failure_graceful        — 工具异常降级，Agent 不崩溃
-  14. test_save_turn_includes_human     — [Fix-1] 验证 save_turn() 收到 HumanMessage
-  15. test_no_text_delta_in_tool_round  — [Fix-3] 工具调用轮不推送 text_delta
+  14. test_save_turn_includes_user      — 验证 save_turn() 收到 user 消息
+  15. test_no_text_delta_in_tool_round  — 工具调用轮不推送 text_delta
 
 运行方式（需在项目根目录）：
     F:/Anaconda/envs/llm_universe/python.exe tests/test_master_agent.py
@@ -31,11 +31,10 @@ import asyncio
 import os
 import sys
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from src.agents.events import (
     TextDeltaEvent,
@@ -63,21 +62,38 @@ def make_session_id() -> str:
     return f"test_{uuid.uuid4().hex[:8]}"
 
 
+def _make_chunk(content: str = "", tool_calls=None, usage=None):
+    """构造模拟原生 OpenAI ChatCompletionChunk 对象。"""
+    delta = SimpleNamespace(
+        content=content,
+        tool_calls=tool_calls,
+    )
+    choice = SimpleNamespace(delta=delta)
+    chunk = SimpleNamespace(choices=[choice], usage=usage)
+    return chunk
+
+
+def _make_tool_call_chunk(index: int, id: str = "", name: str = "", arguments: str = ""):
+    """构造模拟原生 ChoiceDeltaToolCall 对象（流式工具调用）。"""
+    func = SimpleNamespace(name=name, arguments=arguments)
+    return SimpleNamespace(index=index, id=id, function=func)
+
+
 def _build_agent_with_mocks(astream_side_effect, tools=None, history=None):
     """
     构造带 Mock LLM 的 MasterAgent，返回 (agent, mock_sm)。
-    astream_side_effect: async generator function，接收 messages 参数。
+    astream_side_effect: async generator function。
     """
     with (
-        patch("src.agents.master_agent.get_llm") as mock_get_llm,
-        patch("src.agents.master_agent.build_tool_registry") as mock_registry,
+        patch("src.agents.master_agent.get_native_llm") as mock_get_llm,
+        patch("src.agents.master_agent.build_native_tool_registry") as mock_registry,
         patch("src.agents.master_agent.SessionManager") as mock_sm_cls,
         patch("src.agents.master_agent.load_master_agent_system_prompt"),
+        patch("src.agents.master_agent.ToolCallLimiter") as mock_limiter_cls,
     ):
         mock_llm = MagicMock()
-        mock_llm_with_tools = MagicMock()
-        mock_llm_with_tools.astream = astream_side_effect
-        mock_llm.bind_tools.return_value = mock_llm_with_tools
+        mock_llm.astream = astream_side_effect
+        mock_llm.model_name = "test-model"
         mock_get_llm.return_value = mock_llm
 
         mock_registry.return_value = tools or []
@@ -86,8 +102,13 @@ def _build_agent_with_mocks(astream_side_effect, tools=None, history=None):
         mock_sm.load.return_value = history or []
         mock_sm_cls.return_value = mock_sm
 
+        mock_limiter = MagicMock()
+        mock_limiter.check.return_value = True
+        mock_limiter_cls.return_value = mock_limiter
+
         agent = MasterAgent()
         agent._system_prompt = "你是 GraphAssistant。"
+        agent._tool_schemas = []
         return agent, mock_sm
 
 
@@ -134,31 +155,24 @@ def test_estimate_cost():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Case 4-7：[Fix-2] _accumulate_tool_calls / _finalize_tool_calls
+# Case 4-7：_accumulate_tool_calls / _finalize_tool_calls
 # ════════════════════════════════════════════════════════════════════════════
 
 def test_accumulate_tool_calls_string():
-    """
-    [Fix-2] 字符串 args 拼接——模拟真实 LangChain 流式场景：
-    index=0 的 tool_call 分多个 chunk 到达，args 逐片拼接。
-    """
+    """字符串 args 拼接——模拟真实原生流式场景。"""
     pending: list[dict] = []
 
-    # 第 1 个 chunk：id + name，args 为空串
     _accumulate_tool_calls(pending, [{"index": 0, "id": "tc_001", "name": "retrieve_knowledge", "args": ""}])
     assert len(pending) == 1
     assert pending[0]["name"] == "retrieve_knowledge"
     assert pending[0]["args"] == ""
 
-    # 第 2 个 chunk：args 第一片
     _accumulate_tool_calls(pending, [{"index": 0, "id": None, "name": None, "args": '{"query": "'}])
     assert pending[0]["args"] == '{"query": "'
 
-    # 第 3 个 chunk：args 第二片（完整 JSON）
     _accumulate_tool_calls(pending, [{"index": 0, "id": None, "name": None, "args": 'RAG 原理"}'}])
     assert pending[0]["args"] == '{"query": "RAG 原理"}'
 
-    # finalize：解析字符串 → dict
     final = _finalize_tool_calls(pending)
     assert isinstance(final[0]["args"], dict)
     assert final[0]["args"] == {"query": "RAG 原理"}
@@ -167,9 +181,7 @@ def test_accumulate_tool_calls_string():
 
 
 def test_accumulate_tool_calls_dict():
-    """
-    [Fix-2] dict args 覆盖——Mock 测试中常见的整块 dict 格式。
-    """
+    """dict args 覆盖——Mock 测试中常见的整块 dict 格式。"""
     pending: list[dict] = []
     _accumulate_tool_calls(pending, [{"index": 0, "id": "tc_002", "name": "list_documents", "args": {"keyword": "RAG"}}])
     assert len(pending) == 1
@@ -179,18 +191,12 @@ def test_accumulate_tool_calls_dict():
 
 
 def test_accumulate_tool_calls_multi():
-    """
-    [Fix-2] 多工具调用：不同 index 分别累积，互不干扰。
-    """
+    """多工具调用：不同 index 分别累积，互不干扰。"""
     pending: list[dict] = []
 
-    # Tool 0
     _accumulate_tool_calls(pending, [{"index": 0, "id": "tc_a", "name": "list_documents", "args": ""}])
-    # Tool 1
     _accumulate_tool_calls(pending, [{"index": 1, "id": "tc_b", "name": "retrieve_knowledge", "args": ""}])
-    # Tool 0 args 拼接
     _accumulate_tool_calls(pending, [{"index": 0, "args": '{"keyword": "RAG"}'}])
-    # Tool 1 args 拼接
     _accumulate_tool_calls(pending, [{"index": 1, "args": '{"query": "RAG 方法"}'}])
 
     final = _finalize_tool_calls(pending)
@@ -203,12 +209,12 @@ def test_accumulate_tool_calls_multi():
 
 
 def test_finalize_tool_calls():
-    """[Fix-2] 字符串 args 解析：合法 JSON → dict；空字符串 → {}；损坏 JSON → {}（+WARNING）。"""
+    """字符串 args 解析：合法 JSON → dict；空字符串 → {}；损坏 JSON → {}（+WARNING）。"""
     cases = [
         ({"args": '{"q": "test"}'}, {"q": "test"}),
         ({"args": ""},               {}),
-        ({"args": "{bad json}"},     {}),    # 损坏：fallback 为 {}
-        ({"args": {"q": "test"}},    {"q": "test"}),  # 已是 dict：不变
+        ({"args": "{bad json}"},     {}),
+        ({"args": {"q": "test"}},    {"q": "test"}),
     ]
     for raw, expected in cases:
         result = _finalize_tool_calls([{"id": "t", "name": "tool", **raw}])
@@ -217,75 +223,71 @@ def test_finalize_tool_calls():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Case 8：[Fix-4] _accumulate_tokens 多字段兼容
+# Case 8：_accumulate_tokens 原生 chunk.usage 读取
 # ════════════════════════════════════════════════════════════════════════════
 
-def test_accumulate_tokens_compat():
-    """[Fix-4] 验证 input_tokens/output_tokens 和 prompt_tokens/completion_tokens 均被识别。"""
-
-    class FakeChunk:
-        def __init__(self, **meta):
-            self.usage_metadata = meta
+def test_accumulate_tokens_native():
+    """验证原生 OpenAI chunk.usage 字段被正确读取。"""
 
     totals: dict = {}
 
-    # OpenAI / DashScope 风格
-    _accumulate_tokens(totals, FakeChunk(prompt_tokens=100, completion_tokens=50))
+    # 原生 OpenAI chunk with usage
+    usage = SimpleNamespace(prompt_tokens=100, completion_tokens=50)
+    chunk = SimpleNamespace(choices=[], usage=usage)
+    _accumulate_tokens(totals, chunk)
     assert totals["prompt"] == 100
     assert totals["completion"] == 50
 
-    # Anthropic / LangChain 新版风格
-    _accumulate_tokens(totals, FakeChunk(input_tokens=200, output_tokens=80))
+    # 第二个 chunk（流式末尾）
+    usage2 = SimpleNamespace(prompt_tokens=200, completion_tokens=80)
+    chunk2 = SimpleNamespace(choices=[], usage=usage2)
+    _accumulate_tokens(totals, chunk2)
     assert totals["prompt"] == 300
     assert totals["completion"] == 130
 
-    # 无 usage_metadata：不影响已有统计
-    class NoMeta:
-        pass
-    _accumulate_tokens(totals, NoMeta())
+    # 无 usage 的中间 chunk：不影响已有统计
+    chunk3 = SimpleNamespace(choices=[], usage=None)
+    _accumulate_tokens(totals, chunk3)
     assert totals["prompt"] == 300
 
-    print("[PASS] test_accumulate_tokens_compat")
+    print("[PASS] test_accumulate_tokens_native")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Case 9：[Fix-1] _collect_new_messages 包含 HumanMessage
+# Case 9：_collect_new_messages 包含 user 消息
 # ════════════════════════════════════════════════════════════════════════════
 
-def test_collect_new_messages_includes_human():
+def test_collect_new_messages_includes_user():
     """
-    [Fix-1] 验证 base_length = 1 + history_length 时，
-    HumanMessage 被包含在 new_messages 中（不再丢失用户消息）。
+    验证 base_length = 1 + history_length 时，
+    user 消息被包含在 new_messages 中（不再丢失用户消息）。
     """
     history = [
-        HumanMessage(content="旧问题"),
-        AIMessage(content="旧答案"),
+        {"role": "user", "content": "旧问题"},
+        {"role": "assistant", "content": "旧答案"},
     ]
     history_length = len(history)
 
-    sys_msg = SystemMessage(content="系统提示")
-    new_human = HumanMessage(content="新问题")
-    new_ai = AIMessage(content="新答案")
-    tool_msg = ToolMessage(content="工具结果", tool_call_id="tc_001")
+    sys_msg  = {"role": "system",    "content": "系统提示"}
+    new_user = {"role": "user",      "content": "新问题"}
+    new_ai   = {"role": "assistant", "content": "新答案"}
+    tool_msg = {"role": "tool",      "content": "工具结果", "tool_call_id": "tc_001"}
 
-    # base_length = 1(SystemMessage) + history_length = 3
     base_length = 1 + history_length
-    messages = [sys_msg, *history, new_human, new_ai, tool_msg]
+    messages = [sys_msg, *history, new_user, new_ai, tool_msg]
 
     new_msgs = _collect_new_messages(messages, base_length)
 
-    # 期望：新问题(HumanMessage) + 新答案(AIMessage) + 工具结果(ToolMessage)
     assert len(new_msgs) == 3, f"期望 3 条，实际 {len(new_msgs)}"
-    assert isinstance(new_msgs[0], HumanMessage), f"第 1 条应为 HumanMessage，实际 {type(new_msgs[0])}"
-    assert new_msgs[0].content == "新问题"
-    assert new_msgs[1].content == "新答案"
-    assert isinstance(new_msgs[2], ToolMessage)
+    assert new_msgs[0]["role"] == "user",      f"第 1 条应为 user，实际 {new_msgs[0]['role']}"
+    assert new_msgs[0]["content"] == "新问题"
+    assert new_msgs[1]["content"] == "新答案"
+    assert new_msgs[2]["role"] == "tool"
 
-    # SystemMessage 不得混入
     for m in new_msgs:
-        assert not isinstance(m, SystemMessage), "SystemMessage 不应出现在 new_messages 中"
+        assert m.get("role") != "system", "system 消息不应出现在 new_messages 中"
 
-    print("[PASS] test_collect_new_messages_includes_human")
+    print("[PASS] test_collect_new_messages_includes_user")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -296,9 +298,9 @@ def test_simple_greeting():
     """LLM 直接回答，不调用任何工具，事件序列正确，文本完整。"""
     answer = "你好！有什么可以帮你的？"
 
-    async def mock_astream(*_):
+    async def mock_astream(*_, **_kw):
         for char in answer:
-            yield AIMessage(content=char)
+            yield _make_chunk(content=char)
 
     agent, _ = _build_agent_with_mocks(mock_astream)
 
@@ -325,7 +327,7 @@ def test_simple_greeting():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Case 11：文献检索（一次工具调用）+ [Fix-3] 工具调用轮无 text_delta
+# Case 11：文献检索（一次工具调用）+ 工具调用轮无 text_delta
 # ════════════════════════════════════════════════════════════════════════════
 
 def test_single_tool_call():
@@ -338,21 +340,19 @@ def test_single_tool_call():
     answer = "根据检索结果，答案是..."
     iteration_counter = {"n": 0}
 
-    async def mock_astream(*_):
+    async def mock_astream(*_, **_kw):
         n = iteration_counter["n"]
         iteration_counter["n"] += 1
         if n == 0:
-            # 第一轮：tool_call（模拟工具调用轮也夹带中间文本）
-            yield AIMessage(content="我来检索一下")   # 中间文本，应被屏蔽
-            yield AIMessage(
-                content="",
-                tool_calls=[{"id": "tc_001", "name": "retrieve_knowledge",
-                             "args": {"query": "RAG 和 GraphRAG 的区别"}}],
+            yield _make_chunk(content="我来检索一下")
+            tc = _make_tool_call_chunk(
+                index=0, id="tc_001", name="retrieve_knowledge",
+                arguments='{"query": "RAG 和 GraphRAG 的区别"}',
             )
+            yield _make_chunk(tool_calls=[tc])
         else:
-            # 第二轮：最终回答
             for char in answer:
-                yield AIMessage(content=char)
+                yield _make_chunk(content=char)
 
     mock_tool = MagicMock()
     mock_tool.name = "retrieve_knowledge"
@@ -375,7 +375,6 @@ def test_single_tool_call():
     assert "DoneEvent" in types
     assert any(isinstance(e, SourcesEvent) for e in events), "缺少 SourcesEvent（工具结果含来源引用）"
 
-    # [Fix-3] TextDeltaEvent 来自最终回答轮，不含中间文本 "我来检索一下"
     text = "".join(e.delta for e in events if isinstance(e, TextDeltaEvent))
     assert text == answer, f"期望最终回答文本，实际: {text!r}"
     assert "我来检索一下" not in text, "工具调用轮的中间文本不应透传"
@@ -392,28 +391,24 @@ def test_multi_tool_calls():
     iteration_counter = {"n": 0}
     answer = "综合两次检索，结论如下..."
 
-    async def mock_astream(*_):
+    async def mock_astream(*_, **_kw):
         n = iteration_counter["n"]
         iteration_counter["n"] += 1
         if n == 0:
-            yield AIMessage(
-                content="",
-                tool_calls=[{"id": "tc_001", "name": "list_documents", "args": {"keyword": "RAG"}}],
-            )
+            tc = _make_tool_call_chunk(0, "tc_001", "list_documents", '{"keyword": "RAG"}')
+            yield _make_chunk(tool_calls=[tc])
         elif n == 1:
-            yield AIMessage(
-                content="",
-                tool_calls=[{"id": "tc_002", "name": "retrieve_knowledge", "args": {"query": "RAG 方法"}}],
-            )
+            tc = _make_tool_call_chunk(0, "tc_002", "retrieve_knowledge", '{"query": "RAG 方法"}')
+            yield _make_chunk(tool_calls=[tc])
         else:
             for char in answer:
-                yield AIMessage(content=char)
+                yield _make_chunk(content=char)
 
-    mock_list = MagicMock(name="list_documents")
+    mock_list = MagicMock()
     mock_list.name = "list_documents"
     mock_list.invoke = MagicMock(return_value="找到 3 篇文献")
 
-    mock_retrieve = MagicMock(name="retrieve_knowledge")
+    mock_retrieve = MagicMock()
     mock_retrieve.name = "retrieve_knowledge"
     mock_retrieve.invoke = MagicMock(
         return_value="**检索到 2 个相关片段：**\n\n[来源: doc1.pdf#chunk-2]\n内容..."
@@ -450,17 +445,15 @@ def test_tool_failure_graceful():
     iteration_counter = {"n": 0}
     fallback_answer = "很抱歉，检索失败，我将基于已有知识回答..."
 
-    async def mock_astream(*_):
+    async def mock_astream(*_, **_kw):
         n = iteration_counter["n"]
         iteration_counter["n"] += 1
         if n == 0:
-            yield AIMessage(
-                content="",
-                tool_calls=[{"id": "tc_err", "name": "retrieve_knowledge", "args": {"query": "某查询"}}],
-            )
+            tc = _make_tool_call_chunk(0, "tc_err", "retrieve_knowledge", '{"query": "某查询"}')
+            yield _make_chunk(tool_calls=[tc])
         else:
             for char in fallback_answer:
-                yield AIMessage(content=char)
+                yield _make_chunk(content=char)
 
     mock_tool = MagicMock()
     mock_tool.name = "retrieve_knowledge"
@@ -489,20 +482,20 @@ def test_tool_failure_graceful():
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Case 14：[Fix-1] 验证 save_turn() 收到的 new_messages 含 HumanMessage
+# Case 14：验证 save_turn() 收到的 new_messages 含 user 消息
 # ════════════════════════════════════════════════════════════════════════════
 
-def test_save_turn_includes_human():
+def test_save_turn_includes_user():
     """
-    [Fix-1] 核心集成验证：
-    save_turn() 的 new_messages 参数必须包含本轮 HumanMessage，
+    核心集成验证：
+    save_turn() 的 new_messages 参数必须包含本轮 user 消息，
     否则跨会话恢复时历史会缺失用户提问。
     """
     answer = "这是回答"
 
-    async def mock_astream(*_):
+    async def mock_astream(*_, **_kw):
         for char in answer:
-            yield AIMessage(content=char)
+            yield _make_chunk(content=char)
 
     agent, mock_sm = _build_agent_with_mocks(mock_astream)
 
@@ -514,59 +507,51 @@ def test_save_turn_includes_human():
 
     _run(run())
 
-    # 验证 save_turn 被调用
     assert mock_sm.save_turn.called, "save_turn() 未被调用"
 
-    # 取 save_turn() 的 new_messages 参数
-    call_kwargs = mock_sm.save_turn.call_args[1]   # 关键字参数
+    call_kwargs = mock_sm.save_turn.call_args[1]
     new_messages = call_kwargs.get("new_messages", [])
 
-    # 必须包含 HumanMessage
-    human_msgs = [m for m in new_messages if isinstance(m, HumanMessage)]
-    assert len(human_msgs) >= 1, (
-        f"new_messages 中缺少 HumanMessage！\n"
-        f"实际 new_messages: {[type(m).__name__ for m in new_messages]}"
+    user_msgs = [m for m in new_messages if isinstance(m, dict) and m.get("role") == "user"]
+    assert len(user_msgs) >= 1, (
+        f"new_messages 中缺少 user 消息！\n"
+        f"实际 new_messages: {[m.get('role') for m in new_messages]}"
     )
-    assert human_msgs[0].content == "用户的问题", (
-        f"HumanMessage 内容错误: {human_msgs[0].content!r}"
+    assert user_msgs[0]["content"] == "用户的问题", (
+        f"user 消息内容错误: {user_msgs[0]['content']!r}"
     )
 
-    # 必须包含 AIMessage
-    ai_msgs = [m for m in new_messages if isinstance(m, AIMessage)]
-    assert len(ai_msgs) >= 1, "new_messages 中缺少 AIMessage"
+    ai_msgs = [m for m in new_messages if isinstance(m, dict) and m.get("role") == "assistant"]
+    assert len(ai_msgs) >= 1, "new_messages 中缺少 assistant 消息"
 
-    # 不应包含 SystemMessage
-    sys_msgs = [m for m in new_messages if isinstance(m, SystemMessage)]
-    assert len(sys_msgs) == 0, "new_messages 中不应包含 SystemMessage"
+    sys_msgs = [m for m in new_messages if isinstance(m, dict) and m.get("role") == "system"]
+    assert len(sys_msgs) == 0, "new_messages 中不应包含 system 消息"
 
-    print("[PASS] test_save_turn_includes_human")
+    print("[PASS] test_save_turn_includes_user")
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Case 15：[Fix-3] 工具调用轮不推送 text_delta
+# Case 15：工具调用轮不推送 text_delta
 # ════════════════════════════════════════════════════════════════════════════
 
 def test_no_text_delta_in_tool_round():
     """
-    [Fix-3] 含 tool_calls 的轮次即使有文本输出也不推送给前端。
+    含 tool_calls 的轮次即使有文本输出也不推送给前端。
     TextDeltaEvent 仅出现在最终回答轮（无 tool_calls 的轮次）。
     """
     iteration_counter = {"n": 0}
-    intermediate_text = "让我先检索一下相关内容，请稍候"  # 应被屏蔽
+    intermediate_text = "让我先检索一下相关内容，请稍候"
     final_text = "基于检索结果，回答如下"
 
-    async def mock_astream(*_):
+    async def mock_astream(*_, **_kw):
         n = iteration_counter["n"]
         iteration_counter["n"] += 1
         if n == 0:
-            # 工具调用轮夹带中间文本
-            yield AIMessage(content=intermediate_text)
-            yield AIMessage(
-                content="",
-                tool_calls=[{"id": "tc_x", "name": "list_documents", "args": {}}],
-            )
+            yield _make_chunk(content=intermediate_text)
+            tc = _make_tool_call_chunk(0, "tc_x", "list_documents", "{}")
+            yield _make_chunk(tool_calls=[tc])
         else:
-            yield AIMessage(content=final_text)
+            yield _make_chunk(content=final_text)
 
     mock_tool = MagicMock()
     mock_tool.name = "list_documents"
@@ -596,11 +581,10 @@ def test_no_text_delta_in_tool_round():
 
 if __name__ == "__main__":
     print("=" * 65)
-    print("Phase 8-5  MasterAgent 测试（Review 修订版）")
+    print("P5-Step4  MasterAgent 测试（原生化版本）")
     print("=" * 65)
 
     tests = [
-        # 辅助函数
         test_extract_sources,
         test_summarize_tool_result,
         test_estimate_cost,
@@ -608,14 +592,13 @@ if __name__ == "__main__":
         test_accumulate_tool_calls_dict,
         test_accumulate_tool_calls_multi,
         test_finalize_tool_calls,
-        test_accumulate_tokens_compat,
-        test_collect_new_messages_includes_human,
-        # Agent 集成
+        test_accumulate_tokens_native,
+        test_collect_new_messages_includes_user,
         test_simple_greeting,
         test_single_tool_call,
         test_multi_tool_calls,
         test_tool_failure_graceful,
-        test_save_turn_includes_human,
+        test_save_turn_includes_user,
         test_no_text_delta_in_tool_round,
     ]
 

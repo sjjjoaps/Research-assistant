@@ -66,19 +66,31 @@ class LLMClient:
           chunk.choices[0].delta.content          — 文本增量
           chunk.choices[0].delta.tool_calls       — 工具调用增量
           chunk.choices[0].finish_reason          — 结束原因
+          chunk.usage                             — token 用量（最后一个 chunk，需 include_usage）
+
+        stream_options={"include_usage": True} 使 OpenAI 兼容接口在流末尾返回 usage chunk。
+        若 provider 不支持该选项，会收到错误或忽略；此处捕获后降级重试（不传 stream_options）。
         """
         kwargs: dict = dict(
             model=self.model,
             messages=messages,
             temperature=self.temperature,
             stream=True,
+            stream_options={"include_usage": True},
         )
         if tools:
             kwargs["tools"] = tools
 
-        async with self._client.chat.completions.stream(**kwargs) as stream:
-            async for chunk in stream:
-                yield chunk
+        try:
+            async with self._client.chat.completions.stream(**kwargs) as stream:
+                async for chunk in stream:
+                    yield chunk
+        except Exception:
+            # provider 不支持 stream_options 时降级：不传 stream_options 重试
+            kwargs.pop("stream_options", None)
+            async with self._client.chat.completions.stream(**kwargs) as stream:
+                async for chunk in stream:
+                    yield chunk
 
     async def ainvoke(
         self,

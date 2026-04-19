@@ -19,9 +19,9 @@ Review 修订要点：
         - 初始化异常被捕获，推送 error + done SSE 事件
         - 保留 get_master_agent() 函数以便测试 patch
 
-    [Fix-4] isinstance 替换 type().__name__ 判断消息类型：
-        - 显式导入 HumanMessage/AIMessage/ToolMessage/SystemMessage
-        - 使用 isinstance() 确保继承链（如 AIMessageChunk）也能正确归类
+    [P5-Step4] get_session_history 改用原生 dict 格式：
+        - 移除 LangChain message 类依赖，messages 已是原生 dict 列表
+        - 直接按 role 字段（user/assistant/tool/system）规范化后返回
 
 SSE 事件序列（正常流）：
     session_start → (thinking → [tool_start → tool_end]*)* → text_delta* →
@@ -41,7 +41,6 @@ from dataclasses import asdict
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from sse_starlette.sse import EventSourceResponse
 
 from api.schemas import AgentChatRequest, SessionMeta
@@ -292,10 +291,10 @@ async def delete_session(session_id: str):
 )
 async def get_session_history(session_id: str):
     """
-    返回指定会话的完整对话历史（LangChain BaseMessage 序列化为 dict 列表）。
+    返回指定会话的完整对话历史（原生 dict 列表）。
 
     [Fix-1] 校验 session_id 格式，防止路径穿越。
-    [Fix-4] 使用 isinstance() 判断消息类型，兼容继承类（如 AIMessageChunk）。
+    P5-Step4：messages 已是原生 dict，直接规范化 role 后返回。
 
     响应格式：
         {
@@ -319,32 +318,29 @@ async def get_session_history(session_id: str):
         logger.warning("加载会话历史失败 [session=%s]: %s", session_id, exc)
         messages = []
 
-    # [Fix-4] 用 isinstance() 替代 type().__name__ 字符串比较
+    # P5-Step4：messages 已是原生 dict 列表，直接透传（规范化 role 显示）
     serialized = []
     for msg in messages:
-        if isinstance(msg, HumanMessage):
-            serialized.append({"role": "human", "content": msg.content})
-        elif isinstance(msg, ToolMessage):
-            # ToolMessage 必须在 AIMessage 之前判断（ToolMessage 不继承 AIMessage）
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        if role == "user":
+            serialized.append({"role": "human", "content": content})
+        elif role == "tool":
             serialized.append({
                 "role": "tool",
-                "tool_call_id": getattr(msg, "tool_call_id", ""),
-                "content": msg.content,
+                "tool_call_id": msg.get("tool_call_id", ""),
+                "content": content,
             })
-        elif isinstance(msg, AIMessage):
-            # AIMessageChunk 也继承自 AIMessage，可被正确归类
-            entry: dict = {"role": "assistant", "content": msg.content}
-            if getattr(msg, "tool_calls", None):
-                entry["tool_calls"] = msg.tool_calls
+        elif role == "assistant":
+            entry: dict = {"role": "assistant", "content": content}
+            if msg.get("tool_calls"):
+                entry["tool_calls"] = msg["tool_calls"]
             serialized.append(entry)
-        elif isinstance(msg, SystemMessage):
-            # SystemMessage 是压缩摘要注入的，一并返回供调试使用
-            serialized.append({"role": "system", "content": msg.content})
+        elif role == "system":
+            serialized.append({"role": "system", "content": content})
         else:
-            # 未知类型：降级处理，保留 content
-            serialized.append({
-                "role": type(msg).__name__.lower(),
-                "content": str(msg.content),
-            })
+            serialized.append({"role": role, "content": str(content)})
 
     return {"session_id": session_id, "messages": serialized}

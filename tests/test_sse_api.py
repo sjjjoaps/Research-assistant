@@ -252,11 +252,9 @@ def test_delete_session_nonexistent():
 
 def test_get_session_history():
     """GET history 应返回 messages 列表，包含角色和内容字段。"""
-    from langchain_core.messages import AIMessage, HumanMessage
-
     mock_history = [
-        HumanMessage(content="RAG 是什么？"),
-        AIMessage(content="RAG 是检索增强生成..."),
+        {"role": "user",      "content": "RAG 是什么？"},
+        {"role": "assistant", "content": "RAG 是检索增强生成..."},
     ]
     mock_sm = _make_mock_session_manager(history=mock_history)
 
@@ -502,8 +500,6 @@ def test_history_contains_human_and_assistant_after_turn():
     from pathlib import Path
     from unittest.mock import patch as _patch
 
-    from langchain_core.messages import AIMessage, HumanMessage
-
     from src.agents.session_manager import SessionManager
 
     # 使用临时目录隔离磁盘操作
@@ -516,10 +512,10 @@ def test_history_contains_human_and_assistant_after_turn():
 
         sid = "test-history-e2e"
 
-        # 模拟 MasterAgent 调用 save_turn 时的 new_messages（含 HumanMessage）
+        # P5-Step4：new_messages 已是原生 dict 列表
         new_msgs = [
-            HumanMessage(content="RAG 是什么？"),
-            AIMessage(content="RAG 是检索增强生成技术。"),
+            {"role": "user",      "content": "RAG 是什么？"},
+            {"role": "assistant", "content": "RAG 是检索增强生成技术。"},
         ]
         real_sm.save_turn(
             session_id=sid,
