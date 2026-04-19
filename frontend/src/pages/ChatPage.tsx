@@ -13,11 +13,7 @@ import { sourceFilePath, sourceContent, sourceSectionType } from '../types'
 
 // ── Session list ──────────────────────────────────────────────────────────────
 function SessionList({
-  sessions,
-  currentId,
-  onSelect,
-  onNew,
-  onDelete,
+  sessions, currentId, onSelect, onNew, onDelete,
 }: {
   sessions: Session[]
   currentId: string | null
@@ -26,55 +22,76 @@ function SessionList({
   onDelete: (id: string) => void
 }) {
   return (
-    <div className="w-72 border-r shrink-0 flex flex-col" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
-      <div className="p-4 border-b" style={{ borderColor: 'var(--border)' }}>
-        <button
-          onClick={onNew}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors"
-          style={{ background: 'var(--accent)', color: '#fff' }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
-        >
-          <Plus size={15} />
-          新会话
+    <div className="flex flex-col shrink-0" style={{
+      width: 240,
+      background: 'var(--panel)',
+      borderRight: '1px solid var(--border)',
+    }}>
+      <div className="p-3" style={{ borderBottom: '1px solid var(--border)' }}>
+        <button onClick={onNew} className="btn btn-primary w-full" style={{ fontSize: 13 }}>
+          <Plus size={14} />
+          新建会话
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-1">
+      <div className="flex-1 overflow-y-auto p-2" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {sessions.length === 0 && (
-          <p className="text-xs px-3 py-2" style={{ color: 'var(--text-dim)' }}>暂无会话</p>
+          <p className="px-3 py-4 text-center" style={{ fontSize: 12, color: 'var(--text-dim)' }}>暂无会话</p>
         )}
         {sessions.map(s => (
           <div
             key={s.session_id}
             onClick={() => onSelect(s.session_id)}
-            className="group flex items-center justify-between rounded-xl px-3 py-2.5 cursor-pointer transition-colors"
+            className="group"
             style={{
-              background: currentId === s.session_id ? 'rgba(124,58,237,0.18)' : 'transparent',
-              color: currentId === s.session_id ? '#c4b5fd' : 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderRadius: 'var(--r-md)',
+              padding: '8px 10px',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              background: currentId === s.session_id ? 'var(--accent-subtle)' : 'transparent',
+              border: `1px solid ${currentId === s.session_id ? 'rgba(91,110,245,0.2)' : 'transparent'}`,
             }}
             onMouseEnter={e => {
               if (currentId !== s.session_id)
-                e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                (e.currentTarget as HTMLElement).style.background = 'var(--surface)'
             }}
             onMouseLeave={e => {
               if (currentId !== s.session_id)
-                e.currentTarget.style.background = 'transparent'
+                (e.currentTarget as HTMLElement).style.background = 'transparent'
             }}
           >
-            <div className="flex items-start gap-2.5 min-w-0">
-              <MessageSquare size={13} className="mt-0.5 shrink-0 opacity-60" />
-              <div className="min-w-0">
-                <p className="text-sm truncate">{s.title || '新会话'}</p>
-                <p className="text-xs mt-0.5 opacity-50">{s.turn_count} 轮对话</p>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0 }}>
+              <MessageSquare size={12} style={{
+                marginTop: 2,
+                flexShrink: 0,
+                color: currentId === s.session_id ? '#a5b4fc' : 'var(--text-dim)',
+              }} />
+              <div style={{ minWidth: 0 }}>
+                <p style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: currentId === s.session_id ? '#c4b5fd' : 'var(--text-muted)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {s.title || '新会话'}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 1 }}>
+                  {s.turn_count} 轮对话
+                </p>
               </div>
             </div>
             <button
               onClick={e => { e.stopPropagation(); onDelete(s.session_id) }}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded-lg transition-all hover:text-red-400"
-              style={{ color: 'var(--text-dim)' }}
+              className="session-delete-btn"
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--danger)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
             >
-              <Trash2 size={13} />
+              <Trash2 size={12} />
             </button>
           </div>
         ))}
@@ -88,15 +105,24 @@ function SourcesAccordion({ sources }: { sources: Source[] }) {
   const [open, setOpen] = useState(false)
   if (!sources.length) return null
   return (
-    <div className="mt-3">
+    <div style={{ marginTop: 12 }}>
       <button
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 text-xs transition-colors"
-        style={{ color: 'var(--text-dim)' }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          fontSize: 11.5,
+          color: 'var(--text-dim)',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          transition: 'color 0.15s',
+        }}
         onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-muted)')}
         onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
       >
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         引用来源 ({sources.length})
       </button>
       <AnimatePresence>
@@ -106,23 +132,25 @@ function SourcesAccordion({ sources }: { sources: Source[] }) {
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.18 }}
-            className="overflow-hidden"
+            style={{ overflow: 'hidden' }}
           >
-            <div className="mt-2 space-y-1.5">
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
               {sources.map((src, i) => (
-                <div
-                  key={i}
-                  className="rounded-xl px-3 py-2.5 text-xs"
-                  style={{ background: 'var(--surface)', color: 'var(--text-muted)' }}
-                >
-                  <p className="font-mono truncate" style={{ color: 'var(--text)' }}>
+                <div key={i} style={{
+                  borderRadius: 'var(--r-md)',
+                  padding: '8px 12px',
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border-light)',
+                  fontSize: 12,
+                }}>
+                  <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)', fontSize: 11.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {sourceFilePath(src)}
                   </p>
                   {sourceSectionType(src) && (
-                    <span className="text-violet-400/70 text-[10px]">[{sourceSectionType(src)}]</span>
+                    <span style={{ color: '#a5b4fc', fontSize: 10.5, opacity: 0.8 }}>[{sourceSectionType(src)}]</span>
                   )}
                   {sourceContent(src) && (
-                    <p className="mt-1 line-clamp-2 text-[11px]" style={{ color: 'var(--text-dim)' }}>
+                    <p style={{ marginTop: 4, fontSize: 11.5, color: 'var(--text-dim)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {sourceContent(src)}
                     </p>
                   )}
@@ -146,15 +174,31 @@ function UploadDrawer({ open, onClose }: { open: boolean; onClose: () => void })
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-          className="absolute bottom-0 left-0 right-0 border-t z-20 rounded-t-2xl p-5"
-          style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
+          style={{
+            position: 'absolute',
+            bottom: 0, left: 0, right: 0,
+            borderTop: '1px solid var(--border)',
+            zIndex: 20,
+            borderRadius: '20px 20px 0 0',
+            padding: 20,
+            background: 'var(--surface)',
+          }}
         >
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>上传文献</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <h3 style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>上传文献</h3>
             <button
               onClick={onClose}
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-lg leading-none transition-colors"
-              style={{ color: 'var(--text-dim)' }}
+              style={{
+                width: 26, height: 26,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: 'var(--r-sm)',
+                fontSize: 16,
+                color: 'var(--text-dim)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'color 0.15s',
+              }}
               onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
             >
@@ -195,7 +239,6 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
@@ -210,6 +253,8 @@ export default function ChatPage() {
   }, [setCurrentSession, setMessages])
 
   const selectSession = useCallback(async (id: string) => {
+    // Don't reload if already on this session — avoids wiping in-progress messages
+    if (id === currentSessionId) return
     setCurrentSession(id)
     try {
       const data = await getSessionHistory(id)
@@ -217,6 +262,7 @@ export default function ChatPage() {
       setMessages(
         history
           .filter(m => m.role === 'human' || m.role === 'user' || m.role === 'assistant')
+          .filter(m => m.content)  // skip empty-content assistant tool-call stubs
           .map(m => ({
             role: (m.role === 'human' || m.role === 'user') ? 'user' : 'assistant' as 'user' | 'assistant',
             content: m.content,
@@ -225,12 +271,10 @@ export default function ChatPage() {
     } catch {
       setMessages([])
     }
-  }, [setCurrentSession, setMessages])
+  }, [currentSessionId, setCurrentSession, setMessages])
 
   const handleDeleteSession = useCallback(async (id: string) => {
-    try {
-      await deleteSession(id)
-    } catch { /* ignore */ }
+    try { await deleteSession(id) } catch { /* ignore */ }
     removeSession(id)
     if (currentSessionId === id) {
       setCurrentSession(null)
@@ -259,8 +303,7 @@ export default function ChatPage() {
   }, [input, isStreaming, currentSessionId, setCurrentSession, upsertSession, send])
 
   return (
-    <div className="flex h-full relative">
-      {/* Session list */}
+    <div style={{ display: 'flex', height: '100%', position: 'relative' }}>
       <SessionList
         sessions={sessions}
         currentId={currentSessionId}
@@ -269,24 +312,42 @@ export default function ChatPage() {
         onDelete={handleDeleteSession}
       />
 
-      {/* Messages */}
-      <div className="flex-1 flex flex-col min-w-0" style={{ background: 'var(--bg)' }}>
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
+      {/* Messages area */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: 'var(--bg-mid)' }}>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: 'var(--text-dim)' }}>
-              <MessageSquare size={36} className="opacity-30" />
-              <p className="text-sm">选择或新建会话，开始提问</p>
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              height: '100%', gap: 12, color: 'var(--text-dim)',
+            }}>
+              <div style={{
+                width: 56, height: 56,
+                borderRadius: 'var(--r-xl)',
+                background: 'var(--surface)',
+                border: '1px solid var(--border-light)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <MessageSquare size={24} style={{ opacity: 0.4 }} />
+              </div>
+              <p style={{ fontSize: 13.5 }}>选择或新建会话，开始提问</p>
             </div>
           )}
+
           {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}
+            >
               <div
-                className="rounded-2xl px-5 py-4 leading-relaxed"
+                className={msg.role === 'user' ? 'msg-user' : 'msg-assistant'}
                 style={{
-                  fontSize: '25px',
                   maxWidth: '72%',
-                  background: msg.role === 'user' ? 'var(--accent)' : 'var(--surface2)',
-                  color: msg.role === 'user' ? '#fff' : 'var(--text)',
+                  padding: '12px 18px',
+                  fontSize: 14.5,
+                  lineHeight: 1.7,
                 }}
               >
                 {msg.role === 'assistant' ? (
@@ -295,7 +356,16 @@ export default function ChatPage() {
                       rehypePlugins={[rehypeHighlight]}
                       components={{
                         pre: ({ children }) => (
-                          <pre className="overflow-x-auto rounded-xl p-4 my-3 text-[13px]" style={{ background: 'var(--panel)' }}>
+                          <pre style={{
+                            overflowX: 'auto',
+                            borderRadius: 'var(--r-md)',
+                            padding: '14px 16px',
+                            margin: '10px 0',
+                            fontSize: 12.5,
+                            background: 'var(--panel)',
+                            border: '1px solid var(--border-light)',
+                            fontFamily: 'var(--font-mono)',
+                          }}>
                             {children}
                           </pre>
                         ),
@@ -303,11 +373,18 @@ export default function ChatPage() {
                           className ? (
                             <code className={className}>{children}</code>
                           ) : (
-                            <code className="px-1.5 py-0.5 rounded-md text-[13px] text-violet-300" style={{ background: 'var(--panel)' }}>
+                            <code style={{
+                              padding: '2px 6px',
+                              borderRadius: 'var(--r-sm)',
+                              fontSize: 12.5,
+                              color: '#a5b4fc',
+                              background: 'var(--panel)',
+                              fontFamily: 'var(--font-mono)',
+                            }}>
                               {children}
                             </code>
                           ),
-                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        p: ({ children }) => <p style={{ marginBottom: 8 }}>{children}</p>,
                       }}
                     >
                       {msg.content}
@@ -315,15 +392,62 @@ export default function ChatPage() {
                     {msg.sources && <SourcesAccordion sources={msg.sources} />}
                   </>
                 ) : (
-                  <span className="whitespace-pre-wrap">{msg.content}</span>
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
                 )}
               </div>
-            </div>
+            </motion.div>
           ))}
+
           {isStreaming && (
-            <div className="flex justify-start">
-              <div className="rounded-2xl px-5 py-4" style={{ background: 'var(--surface2)' }}>
-                <Loader2 size={16} className="animate-spin" style={{ color: 'var(--accent)' }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+              <div className="msg-assistant" style={{ padding: '12px 18px', maxWidth: '72%' }}>
+                {activeToolCalls.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {activeToolCalls.map((tc, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {tc.status === 'loading' ? (
+                          <motion.span
+                            style={{
+                              display: 'inline-block',
+                              width: 7, height: 7,
+                              borderRadius: '50%',
+                              background: 'var(--accent)',
+                              flexShrink: 0,
+                            }}
+                            animate={{ opacity: [0.3, 1, 0.3] }}
+                            transition={{ duration: 1.2, repeat: Infinity }}
+                          />
+                        ) : (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 14, height: 14, borderRadius: '50%',
+                            background: 'var(--success-subtle)', color: 'var(--success)',
+                            fontSize: 9, fontWeight: 700, flexShrink: 0,
+                          }}>✓</span>
+                        )}
+                        <span style={{ fontSize: 12.5, color: 'var(--text-muted)', flex: 1 }}>
+                          {tc.display_message || tc.tool_name}
+                        </span>
+                        {tc.elapsed_ms !== undefined && (
+                          <span style={{ fontSize: 11, color: 'var(--text-dim)', flexShrink: 0 }}>
+                            {tc.elapsed_ms}ms
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                    {[0, 1, 2].map(i => (
+                      <motion.div
+                        key={i}
+                        style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }}
+                        animate={{ opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -331,20 +455,26 @@ export default function ChatPage() {
         </div>
 
         {/* Composer */}
-        <div className="px-6 pb-6 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-          <div
-            className="flex items-end gap-3 rounded-2xl border px-5 py-4 transition-colors focus-within:border-violet-500/60"
-            style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
-          >
+        <div style={{ padding: '12px 20px 20px', borderTop: '1px solid var(--border)' }}>
+          <div className="composer" style={{ display: 'flex', alignItems: 'flex-end', gap: 10, padding: '10px 14px' }}>
             <button
               onClick={() => setShowUpload(v => !v)}
               title="上传文献"
-              className="p-5 rounded-xl transition-colors shrink-0 mb-0.5"
-              style={{ color: 'var(--text-dim)' }}
-              onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+              style={{
+                padding: '6px',
+                borderRadius: 'var(--r-sm)',
+                color: showUpload ? 'var(--accent)' : 'var(--text-dim)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'color 0.15s',
+                flexShrink: 0,
+                marginBottom: 2,
+              }}
+              onMouseEnter={e => { if (!showUpload) (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)' }}
+              onMouseLeave={e => { if (!showUpload) (e.currentTarget as HTMLElement).style.color = 'var(--text-dim)' }}
             >
-              <Paperclip size={22} />
+              <Paperclip size={18} />
             </button>
             <textarea
               ref={textareaRef}
@@ -359,37 +489,43 @@ export default function ChatPage() {
               placeholder="输入问题... (Shift+Enter 换行)"
               disabled={isStreaming}
               rows={1}
-              className="flex-1 bg-transparent outline-none resize-none disabled:opacity-50"
               style={{
+                flex: 1,
+                background: 'transparent',
+                outline: 'none',
+                resize: 'none',
                 color: 'var(--text)',
-                fontSize: '16px',
-                lineHeight: '25px',
-                minHeight: '32px',
-                maxHeight: '200px',
+                fontSize: 14,
+                lineHeight: 1.6,
+                minHeight: 28,
+                maxHeight: 180,
+                fontFamily: 'var(--font-sans)',
+                opacity: isStreaming ? 0.5 : 1,
               }}
             />
             <button
               onClick={handleSend}
               disabled={isStreaming || !input.trim()}
-              className="p-2.5 rounded-xl transition-colors shrink-0 mb-0.5 disabled:opacity-30"
-              style={{ background: 'var(--accent)', color: '#fff' }}
-              onMouseEnter={e => {
-                if (!isStreaming && input.trim())
-                  e.currentTarget.style.background = 'var(--accent-hover)'
-              }}
-              onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}
+              className="btn btn-primary"
+              style={{ padding: '7px 10px', flexShrink: 0, marginBottom: 2 }}
             >
-              {isStreaming ? <Loader2 size={22} className="animate-spin" /> : <Send size={22} />}
+              {isStreaming ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
             </button>
           </div>
-          <p className="text-xs mt-2 text-center" style={{ color: 'var(--text-dim)' }}>
+          <p style={{ fontSize: 11, textAlign: 'center', marginTop: 6, color: 'var(--text-faint)' }}>
             Enter 发送 · Shift+Enter 换行
           </p>
         </div>
       </div>
 
       {/* Tool call panel */}
-      <div className="w-80 border-l overflow-y-auto shrink-0" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
+      <div style={{
+        width: 288,
+        borderLeft: '1px solid var(--border)',
+        overflowY: 'auto',
+        flexShrink: 0,
+        background: 'var(--panel)',
+      }}>
         <ToolCallCard toolCalls={activeToolCalls} />
       </div>
 

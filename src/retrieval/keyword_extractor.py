@@ -12,7 +12,6 @@ Phase 4.1 实现策略：
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -141,6 +140,7 @@ _HL_ONLY_WORDS = {
 }
 
 from src.agents.prompt_loader import load_system_prompt
+from src.infrastructure.json_utils import extract_json
 
 _PHRASE_RE = re.compile(
     r"[A-Z][A-Za-z0-9.+\-]*(?:\s+[A-Z]?[A-Za-z0-9.+\-]+){0,5}"
@@ -288,10 +288,7 @@ class KeywordExtractor:
             prompt = _LLM_PROMPT.format(query=query[:_MAX_QUERY_LENGTH])
             response = llm.invoke([{"role": "user", "content": prompt}])
             content = str(response.get("content") or "").strip()
-            if "```" in content:
-                content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()
-
-            data = json.loads(content)
+            data = extract_json(content)
             ll = self._trim_keywords([str(k) for k in data.get("ll_keywords", []) if k])
             hl = self._trim_keywords([str(k) for k in data.get("hl_keywords", []) if k])
             return KeywordResult(ll_keywords=ll, hl_keywords=hl, raw_query=query)

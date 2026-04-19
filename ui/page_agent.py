@@ -401,27 +401,20 @@ def render(api_base: str) -> None:
         st.markdown(user_input)
 
     # ── 流式请求 MasterAgent ─────────────────────────────────────────────
+    # 用 spinner 给用户反馈，流式内容收集完后再整体渲染
+    tool_events:      list[dict] = []
+    sources:          list[str]  = []
+    usage:            dict       = {}
+    final_session_id: str        = current_sid
+    error_occurred:   bool       = False
+    error_message:    str        = ""
+    accumulated_text: str        = ""
+
     with st.chat_message("assistant"):
-        # 各类事件累积容器
-        tool_events:      list[dict] = []
-        sources:          list[str]  = []
-        usage:            dict       = {}
-        final_session_id: str        = current_sid
-
-        # [Fix-2] 错误状态追踪
-        error_occurred: bool = False
-        error_message:  str  = ""
-
-        # 占位：工具调用区块（实时更新）
         tool_placeholder = st.empty()
-        # 占位：流式文本
         text_placeholder = st.empty()
-        accumulated_text = ""
 
         def _refresh_tool_display() -> None:
-            """
-            [Fix-6] 实时刷新工具调用状态（按 tool_name FIFO 配对）。
-            """
             if not tool_events:
                 return
             pairs = _pair_tool_events(tool_events)
@@ -468,7 +461,6 @@ def render(api_base: str) -> None:
                 usage = evt_data
 
             elif evt_type == "error":
-                # [Fix-2] 记录错误状态，供流结束后持久化
                 error_occurred = True
                 error_message  = evt_data.get("message", "未知错误")
                 st.error(
@@ -479,12 +471,7 @@ def render(api_base: str) -> None:
             elif evt_type == "done":
                 final_session_id = evt_data.get("session_id", final_session_id)
 
-        # ── 流结束处理 ────────────────────────────────────────────────────
-
-        # [Fix-2] 确定最终展示内容：
-        #   - 有文本 → 使用文本（即使同时有错误，文本优先）
-        #   - 无文本且有错误 → 把错误信息作为 assistant 内容持久化，刷新后不丢失
-        #   - 无文本且无错误 → 默认占位
+        # 流结束：清空流式占位，最终内容写入 placeholder（rerun 之前刷新一次）
         if accumulated_text:
             final_content = accumulated_text
         elif error_occurred:
@@ -492,31 +479,11 @@ def render(api_base: str) -> None:
         else:
             final_content = "（无文本回复）"
 
-        text_placeholder.markdown(final_content)
-
-        # 工具调用过程：折叠展示（替换 info 占位）
         tool_placeholder.empty()
-        if tool_events:
-            _render_tool_events(tool_events)
-
-        # 来源
-        if sources:
-            with st.expander("📎 参考来源", expanded=False):
-                for src in sources:
-                    st.caption(f"· {src}")
-
-        # token 用量
-        if usage:
-            st.caption(
-                f"📊 tokens: {usage.get('total_tokens', 0)}  "
-                f"(prompt {usage.get('prompt_tokens', 0)} / "
-                f"completion {usage.get('completion_tokens', 0)})  "
-                f"· 费用≈¥{usage.get('estimated_cost_cny', 0):.5f}"
-            )
+        text_placeholder.markdown(final_content)
 
     # ── 持久化本轮消息 ────────────────────────────────────────────────────
     st.session_state["agent_session_id"] = final_session_id
-    # [Fix-2] 使用 final_content 而非 accumulated_text，确保错误信息被持久化
     st.session_state["agent_messages"].append({
         "role":        "assistant",
         "content":     final_content,
@@ -527,3 +494,6 @@ def render(api_base: str) -> None:
 
     # 刷新会话列表（拉取最新 title/turn_count）
     st.session_state["agent_sessions"] = _load_session_list(api_base)
+
+    # 触发整页重渲染，确保流式占位符被完整消息替换
+    st.rerun()

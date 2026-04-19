@@ -61,14 +61,10 @@ export default function FileUploader() {
     <div className="flex flex-col gap-3">
       <div
         {...getRootProps()}
-        className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-colors ${
-          isDragActive
-            ? 'border-violet-500 bg-violet-500/10'
-            : 'border-slate-600 hover:border-slate-400'
-        }`}
+        className={`dropzone${isDragActive ? ' active' : ''}`}
       >
         <input {...getInputProps()} />
-        <p className="text-slate-400 text-sm">
+        <p>
           {uploading
             ? '上传中...'
             : isDragActive

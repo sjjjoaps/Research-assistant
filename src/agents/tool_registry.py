@@ -151,7 +151,46 @@ class Tool:
 
     def invoke(self, input_dict: dict) -> str:
         """统一调用入口，供 MasterAgent 工具循环使用。"""
-        return self.func(**input_dict)
+        coerced = self._coerce_args(input_dict)
+        return self.func(**coerced)
+
+    def _coerce_args(self, input_dict: dict) -> dict:
+        """将 LLM 传入的字符串参数按 JSON Schema 类型强制转换。"""
+        sig = inspect.signature(self.func)
+        result = {}
+        for name, param in sig.parameters.items():
+            if name not in input_dict:
+                result[name] = input_dict.get(name, param.default)
+                continue
+            val = input_dict[name]
+            ann = param.annotation
+            if ann is inspect.Parameter.empty:
+                result[name] = val
+                continue
+            # unwrap Optional[X]
+            import types as _types
+            origin = get_origin(ann)
+            args = get_args(ann)
+            if origin is not None:
+                is_union = (
+                    origin is _types.UnionType
+                    or str(origin) in ("typing.Union", "<class 'typing.Union'>")
+                )
+                if is_union:
+                    non_none = [a for a in args if a is not type(None)]
+                    ann = non_none[0] if non_none else str
+            try:
+                if ann is int and not isinstance(val, int):
+                    result[name] = int(val)
+                elif ann is float and not isinstance(val, float):
+                    result[name] = float(val)
+                elif ann is bool and not isinstance(val, bool):
+                    result[name] = str(val).lower() in ("true", "1", "yes")
+                else:
+                    result[name] = val
+            except (ValueError, TypeError):
+                result[name] = val
+        return result
 
     def to_openai_schema(self) -> dict:
         """导出 OpenAI function calling 所需的 JSON Schema。"""
@@ -1031,6 +1070,10 @@ def _list_documents_func(keyword: str = "", limit: int = 20) -> str:
             hint = f"（关键词 '{keyword}' 过滤后）" if keyword else ""
             return f"知识库{hint}中暂无文献。请通过文献管理页面入库相关文献。"
         total = len(all_docs)
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 20
         docs = all_docs[:limit]
         lines = [f"**知识库文献清单**（共 {total} 篇，显示前 {len(docs)} 篇）：\n"]
         for i, doc in enumerate(docs, start=1):

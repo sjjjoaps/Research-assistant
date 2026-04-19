@@ -16,12 +16,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 from dataclasses import dataclass, field
 
 from src.agents.prompt_loader import load_system_prompt
+from src.infrastructure.json_utils import extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +147,7 @@ class CitationExtractor:
             prompt = _LLM_PROMPT.format(text=ref_text[:500])
             resp    = llm.invoke([{"role": "user", "content": prompt}])
             content = str(resp.get("content") or "").strip()
-            # 提取 JSON（可能被 markdown 代码块包裹）
-            if "```" in content:
-                content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()
-            data = json.loads(content)
+            data = extract_json(content)
             return CitationRecord(
                 raw_text=ref_text,
                 title=str(data.get("title", "")),

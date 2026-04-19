@@ -1,35 +1,52 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { MessageSquare, BookOpen, Share2 } from 'lucide-react'
 
 const navItems = [
-  { to: '/chat', label: '💬 对话', title: 'Chat' },
-  { to: '/library', label: '📚 文献库', title: 'Library' },
-  { to: '/graph', label: '🕸 知识图谱', title: 'Graph' },
+  { to: '/chat',    icon: MessageSquare, label: '对话助手',  title: 'Chat'    },
+  { to: '/library', icon: BookOpen,      label: '文献库',    title: 'Library' },
+  { to: '/graph',   icon: Share2,        label: '知识图谱',  title: 'Graph'   },
 ]
 
 export default function AppLayout() {
   return (
-    <div className="flex h-screen bg-[#0f1117] text-slate-200 overflow-hidden">
-      <nav className="w-14 flex flex-col items-center py-4 gap-3 bg-[#1a1d27] border-r border-slate-700/50 shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-sm font-bold mb-4">
-          G
+    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
+      <nav className="sidebar">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-mark">G</div>
+          <div>
+            <div className="sidebar-logo-text" style={{
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
+              fontSize: 15,
+              background: 'linear-gradient(135deg, #e8edf5 30%, #a5b4fc)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              letterSpacing: '-0.02em',
+            }}>
+              GraphAssist
+            </div>
+            <div className="sidebar-logo-sub">学术知识引擎</div>
+          </div>
         </div>
-        {navItems.map(({ to, label, title }) => (
-          <NavLink
-            key={to}
-            to={to}
-            title={title}
-            className={({ isActive }) =>
-              `w-10 h-10 flex items-center justify-center rounded-lg text-lg transition-colors ${
-                isActive
-                  ? 'bg-violet-600/30 text-violet-400'
-                  : 'text-slate-500 hover:text-slate-200 hover:bg-slate-700/50'
-              }`
-            }
-          >
-            {label.split(' ')[0]}
-          </NavLink>
-        ))}
+
+        <div className="sidebar-nav">
+          {navItems.map(({ to, icon: Icon, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+            >
+              <Icon size={16} className="nav-item-icon" />
+              {label}
+            </NavLink>
+          ))}
+        </div>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-version">v0.1.0 · alpha</div>
+        </div>
       </nav>
+
       <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>

@@ -7,19 +7,19 @@ export function useSSE() {
   const {
     setStreaming, appendDelta, setSources,
     upsertToolCall, clearToolCalls, addMessage,
-    upsertSession, setCurrentSession,
+    setSessions, setCurrentSession,
   } = useChatStore()
 
   const send = useCallback(async (sessionId: string, message: string) => {
     addMessage({ role: 'user', content: message })
     setStreaming(true)
-    clearToolCalls()
 
     try {
       for await (const event of streamChat(sessionId, message)) {
         switch (event.type) {
           case 'session_start':
             setCurrentSession(event.session_id)
+            clearToolCalls()  // clear here so tool panel resets before first tool_start
             break
           case 'text_delta':
             appendDelta(event.delta)
@@ -50,12 +50,13 @@ export function useSSE() {
             appendDelta(`\n\n[错误] ${event.message}`)
             break
           case 'done':
+            // 流结束后拉取最新会话列表（含 title/turn_count 更新）
             listSessions()
               .then((data: unknown) => {
                 const list: import('../types').Session[] = Array.isArray(data)
                   ? data
                   : (data as { sessions?: import('../types').Session[] }).sessions ?? []
-                list.forEach(s => upsertSession(s))
+                setSessions(list)
               })
               .catch(() => undefined)
             break
@@ -65,7 +66,7 @@ export function useSSE() {
       setStreaming(false)
     }
   }, [addMessage, setStreaming, clearToolCalls, appendDelta, setSources,
-      upsertToolCall, upsertSession, setCurrentSession])
+      upsertToolCall, setSessions, setCurrentSession])
 
   return { send }
 }

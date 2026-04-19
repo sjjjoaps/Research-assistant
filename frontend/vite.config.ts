@@ -9,7 +9,6 @@ export default defineConfig({
       '/agent': 'http://localhost:8000',
       '/documents': 'http://localhost:8000',
       '/graph': 'http://localhost:8000',
-      '/chat': 'http://localhost:8000',
       '/research': 'http://localhost:8000',
       '/community': 'http://localhost:8000',
       '/health': 'http://localhost:8000',

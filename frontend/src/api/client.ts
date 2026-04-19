@@ -19,20 +19,37 @@ export async function* streamChat(
   const decoder = new TextDecoder()
   let buf = ''
 
+  const parseBlock = function* (block: string): Generator<SSEEvent> {
+    const lines = block.split('\n')
+    let eventType = ''
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventType = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        try {
+          const parsed = JSON.parse(line.slice(5).trim()) as SSEEvent
+          // event: line overrides type field in data
+          if (eventType) (parsed as Record<string, unknown>).type = eventType
+          yield parsed
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+  }
+
   while (true) {
     const { done, value } = await reader.read()
-    if (done) break
+    if (done) {
+      // flush remaining buffer
+      if (buf.trim()) yield* parseBlock(buf)
+      break
+    }
     buf += decoder.decode(value, { stream: true })
     const parts = buf.split('\n\n')
     buf = parts.pop() ?? ''
     for (const part of parts) {
-      const dataLine = part.split('\n').find(l => l.startsWith('data:'))
-      if (!dataLine) continue
-      try {
-        yield JSON.parse(dataLine.slice(5).trim()) as SSEEvent
-      } catch {
-        // skip malformed
-      }
+      if (part.trim()) yield* parseBlock(part)
     }
   }
 }

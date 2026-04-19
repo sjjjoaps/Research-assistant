@@ -15,6 +15,7 @@ Phase 4.1 变更：
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -168,8 +169,29 @@ class DeepResearchAgent(BaseAgent):
             )},
         ])
         content = str(resp.get("content") or "").strip()
-        result = SubQuestionList(**extract_json(content))
-        return result.sub_questions[: self.max_subquestions]
+
+        # 优先尝试 JSON 格式（{"sub_questions": [...]}）
+        try:
+            result = SubQuestionList(**extract_json(content))
+            return result.sub_questions[: self.max_subquestions]
+        except (ValueError, Exception):
+            pass
+
+        # 降级：解析纯文本编号列表（"1. xxx\n2. xxx" 或 "- xxx"）
+        questions: list[str] = []
+        for line in content.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # 去掉 "1." / "1)" / "-" / "*" 等前缀
+            cleaned = re.sub(r"^[\d]+[.)、]\s*|^[-*•]\s*", "", line).strip()
+            if cleaned:
+                questions.append(cleaned)
+
+        if questions:
+            return questions[: self.max_subquestions]
+
+        raise ValueError(f"无法从规划响应中提取子问题: {content[:200]!r}")
 
     # ── Step 2+3：检索 + 局部分析 ─────────────────────────────────────────────
 

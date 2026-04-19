@@ -82,15 +82,15 @@ class LLMClient:
             kwargs["tools"] = tools
 
         try:
-            async with self._client.chat.completions.stream(**kwargs) as stream:
-                async for chunk in stream:
-                    yield chunk
+            stream = await self._client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                yield chunk
         except Exception:
             # provider 不支持 stream_options 时降级：不传 stream_options 重试
             kwargs.pop("stream_options", None)
-            async with self._client.chat.completions.stream(**kwargs) as stream:
-                async for chunk in stream:
-                    yield chunk
+            stream = await self._client.chat.completions.create(**kwargs)
+            async for chunk in stream:
+                yield chunk
 
     async def ainvoke(
         self,

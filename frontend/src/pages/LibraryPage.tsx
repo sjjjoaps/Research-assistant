@@ -13,13 +13,15 @@ const RUNNING_STATUS_SET = new Set([
 
 function StatusBadge({ status }: { status: string | null }) {
   const s = status ?? 'unknown'
-  let cls = 'bg-slate-500/20 text-slate-400'
-  if (s === 'processed') cls = 'bg-emerald-500/20 text-emerald-400'
-  else if (s === 'failed') cls = 'bg-red-500/20 text-red-400'
-  else if (RUNNING_STATUS_SET.has(s)) cls = 'bg-amber-500/20 text-amber-400'
+  let cls = 'badge badge-default'
+  if (s === 'processed') cls = 'badge badge-success'
+  else if (s === 'failed') cls = 'badge badge-danger'
+  else if (RUNNING_STATUS_SET.has(s)) cls = 'badge badge-warning'
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
-      {RUNNING_STATUS_SET.has(s) && <span className="animate-spin text-[10px]">⟳</span>}
+    <span className={cls}>
+      {RUNNING_STATUS_SET.has(s) && (
+        <span style={{ display: 'inline-block', animation: 'spin 0.8s linear infinite' }}>⟳</span>
+      )}
       {s}
     </span>
   )
@@ -27,9 +29,9 @@ function StatusBadge({ status }: { status: string | null }) {
 
 type SortDir = 'asc' | 'desc' | null
 function SortIcon({ dir }: { dir: SortDir }) {
-  if (dir === 'asc') return <ChevronUp size={12} />
-  if (dir === 'desc') return <ChevronDown size={12} />
-  return <ChevronsUpDown size={12} className="opacity-30" />
+  if (dir === 'asc') return <ChevronUp size={11} />
+  if (dir === 'desc') return <ChevronDown size={11} />
+  return <ChevronsUpDown size={11} style={{ opacity: 0.3 }} />
 }
 type SortKey = 'title' | 'authors' | 'year' | 'status' | 'chunk_count'
 
@@ -39,91 +41,114 @@ function DetailPanel({ doc, onClose }: { doc: Document; onClose: () => void }) {
       initial={{ x: 40, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: 40, opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      className="w-96 border-l overflow-y-auto shrink-0 flex flex-col"
-      style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
+      transition={{ duration: 0.2 }}
+      style={{
+        width: 360,
+        borderLeft: '1px solid var(--border)',
+        overflowY: 'auto',
+        flexShrink: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--panel)',
+      }}
     >
-      <div className="flex items-center justify-between px-5 py-3.5 border-b" style={{ borderColor: 'var(--border)' }}>
-        <div className="flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
-          <FileText size={15} />
-          <span className="text-sm font-medium">文献详情</span>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '14px 18px',
+        borderBottom: '1px solid var(--border)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-muted)' }}>
+          <FileText size={14} />
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>文献详情</span>
         </div>
-        <button onClick={onClose} style={{ color: 'var(--text-dim)' }} className="hover:text-white transition-colors">
-          <X size={16} />
+        <button
+          onClick={onClose}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dim)', transition: 'color 0.15s' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+        >
+          <X size={15} />
         </button>
       </div>
 
-      <div className="p-5 flex-1 space-y-5">
+      <div style={{ padding: '18px', flex: 1, display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div>
-          <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-dim)' }}>标题</p>
-          <p className="text-sm leading-6" style={{ color: 'var(--text)' }}>{doc.title || doc.file_path}</p>
+          <div className="section-label">标题</div>
+          <p style={{ fontSize: 13.5, lineHeight: 1.6, color: 'var(--text)' }}>{doc.title || doc.file_path}</p>
         </div>
 
         {doc.authors && (
           <div>
-            <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-dim)' }}>作者</p>
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{doc.authors}</p>
+            <div className="section-label">作者</div>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{doc.authors}</p>
           </div>
         )}
 
         {doc.institution && (
           <div>
-            <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-dim)' }}>机构</p>
-            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{doc.institution}</p>
+            <div className="section-label">机构</div>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{doc.institution}</p>
           </div>
         )}
 
-        <div className="flex gap-6">
+        <div style={{ display: 'flex', gap: 20 }}>
           {doc.year && (
             <div>
-              <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-dim)' }}>年份</p>
-              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{doc.year}</p>
+              <div className="section-label">年份</div>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>{doc.year}</p>
             </div>
           )}
           <div>
-            <p className="text-xs font-medium mb-1" style={{ color: 'var(--text-dim)' }}>状态</p>
+            <div className="section-label">状态</div>
             <StatusBadge status={doc.status} />
           </div>
         </div>
 
         {doc.abstract && (
           <div>
-            <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-dim)' }}>摘要</p>
-            <p className="text-sm leading-6" style={{ color: 'var(--text-muted)' }}>{doc.abstract}</p>
+            <div className="section-label">摘要</div>
+            <p style={{ fontSize: 12.5, lineHeight: 1.7, color: 'var(--text-muted)' }}>{doc.abstract}</p>
           </div>
         )}
 
         {doc.keywords && (
           <div>
-            <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-dim)' }}>关键词</p>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="section-label">关键词</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
               {doc.keywords.split(/[,;，；]/).map(k => k.trim()).filter(Boolean).map((k, i) => (
-                <span key={i} className="px-2 py-0.5 rounded-lg text-xs bg-violet-500/15 text-violet-300">{k}</span>
+                <span key={i} className="tag">{k}</span>
               ))}
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-2">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
           {([
             { label: 'Chunks', value: doc.chunk_count },
-            { label: '实体', value: doc.entity_count },
-            { label: '关系', value: doc.relation_count },
+            { label: '实体',   value: doc.entity_count },
+            { label: '关系',   value: doc.relation_count },
           ] as const).map(({ label, value }) => (
-            <div key={label} className="rounded-xl p-3 text-center" style={{ background: 'var(--surface)' }}>
-              <p className="text-base font-semibold" style={{ color: 'var(--text)' }}>{value ?? '-'}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>{label}</p>
+            <div key={label} className="stat-tile">
+              <div className="stat-tile-value">{value ?? '—'}</div>
+              <div className="stat-tile-label">{label}</div>
             </div>
           ))}
         </div>
 
         {doc.error_message && (
-          <div className="rounded-xl p-3 bg-red-500/10 border border-red-500/30">
-            <p className="text-sm text-red-400">{doc.error_message}</p>
+          <div style={{
+            borderRadius: 'var(--r-md)',
+            padding: '10px 12px',
+            background: 'var(--danger-subtle)',
+            border: '1px solid rgba(244,63,94,0.2)',
+          }}>
+            <p style={{ fontSize: 12.5, color: 'var(--danger)' }}>{doc.error_message}</p>
           </div>
         )}
 
-        <p className="text-[10px] font-mono break-all" style={{ color: 'var(--text-dim)' }}>{doc.doc_id}</p>
+        <p style={{ fontSize: 10, fontFamily: 'var(--font-mono)', wordBreak: 'break-all', color: 'var(--text-faint)' }}>
+          {doc.doc_id}
+        </p>
       </div>
     </motion.div>
   )
@@ -136,21 +161,48 @@ function ContextMenu({ menu, onDelete, onRefresh, onClose }: {
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose() }
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [onClose])
 
   return (
-    <div ref={ref} className="fixed z-50 rounded-xl shadow-xl border py-1 min-w-[148px]"
-      style={{ top: menu.y, left: menu.x, background: 'var(--surface)', borderColor: 'var(--border)' }}>
+    <div ref={ref} style={{
+      position: 'fixed', zIndex: 50,
+      top: menu.y, left: menu.x,
+      background: 'var(--surface2)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--r-md)',
+      boxShadow: 'var(--shadow-lg)',
+      padding: '4px',
+      minWidth: 156,
+    }}>
       {[
-        { label: '刷新状态', icon: <RefreshCw size={13} />, action: () => { onRefresh(menu.doc); onClose() } },
+        { label: '刷新状态', icon: <RefreshCw size={13} />, action: () => { onRefresh(menu.doc); onClose() }, danger: false },
         { label: '删除文献', icon: <Trash2 size={13} />, action: () => { onDelete(menu.doc); onClose() }, danger: true },
       ].map(item => (
-        <button key={item.label} onClick={item.action}
-          className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${item.danger ? 'text-red-400 hover:bg-red-500/10' : 'hover:bg-white/5'}`}
-          style={{ color: item.danger ? undefined : 'var(--text-muted)' }}>
+        <button
+          key={item.label}
+          onClick={item.action}
+          style={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '7px 10px',
+            fontSize: 13,
+            borderRadius: 'var(--r-sm)',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: item.danger ? 'var(--danger)' : 'var(--text-muted)',
+            transition: 'background 0.12s',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = item.danger ? 'var(--danger-subtle)' : 'var(--surface3)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+        >
           {item.icon}{item.label}
         </button>
       ))}
@@ -160,7 +212,6 @@ function ContextMenu({ menu, onDelete, onRefresh, onClose }: {
 
 export default function LibraryPage() {
   const { documents, setDocuments, loading, setLoading, removeDocument, upsertDocument } = useDocumentStore()
-  // Store only the ID; derive the live doc from the store so poll updates auto-reflect in panel
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const selected = selectedDocId ? (documents.find(d => (d.doc_id ?? String(d.id)) === selectedDocId) ?? null) : null
 
@@ -179,7 +230,6 @@ export default function LibraryPage() {
       .finally(() => setLoading(false))
   }, [setDocuments, setLoading])
 
-  // Poll running docs — merge status fields into existing doc to preserve metadata
   useEffect(() => {
     const running = documents.filter(d => RUNNING_STATUS_SET.has(d.status ?? ''))
     if (running.length === 0) return
@@ -187,7 +237,6 @@ export default function LibraryPage() {
       for (const doc of running) {
         try {
           const statusData = await getDocumentStatus(doc.doc_id ?? String(doc.id))
-          // Merge: keep all existing doc fields, only overwrite status-related fields
           upsertDocument({ ...doc, ...statusData })
         } catch { /* ignore */ }
       }
@@ -215,7 +264,6 @@ export default function LibraryPage() {
     else { setSortKey(key); setSortDir('asc') }
   }
 
-  // Status distribution for chips
   const counts = {
     all: documents.length,
     running: documents.filter(d => RUNNING_STATUS_SET.has(d.status ?? '')).length,
@@ -250,93 +298,154 @@ export default function LibraryPage() {
   const cols: { key: SortKey; label: string; cls?: string }[] = [
     { key: 'title', label: '标题' },
     { key: 'authors', label: '作者', cls: 'hidden md:table-cell' },
-    { key: 'year', label: '年份', cls: 'hidden lg:table-cell w-16' },
-    { key: 'status', label: '状态', cls: 'w-40' },
-    { key: 'chunk_count', label: 'Chunks', cls: 'hidden xl:table-cell w-16 text-right' },
+    { key: 'year', label: '年份', cls: 'hidden lg:table-cell' },
+    { key: 'status', label: '状态' },
+    { key: 'chunk_count', label: 'Chunks', cls: 'hidden xl:table-cell' },
   ]
 
-  const chipStyles = (active: boolean) => ({
-    background: active ? 'rgba(124,58,237,0.2)' : 'var(--surface)',
-    color: active ? '#c4b5fd' : 'var(--text-dim)',
-    border: `1px solid ${active ? 'rgba(124,58,237,0.4)' : 'var(--border)'}`,
-  })
+  const filterChips = [
+    { key: 'all'       as const, label: '全部',   count: counts.all      },
+    { key: 'running'   as const, label: '处理中', count: counts.running  },
+    { key: 'processed' as const, label: '已完成', count: counts.processed },
+    { key: 'failed'    as const, label: '失败',   count: counts.failed   },
+  ]
 
   return (
-    <div className="flex h-full relative">
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+    <div style={{ display: 'flex', height: '100%', position: 'relative' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
         {/* Toolbar */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b shrink-0" style={{ borderColor: 'var(--border)', background: 'var(--panel)' }}>
-          <div className="relative flex-1 max-w-xs">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-dim)' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索标题/作者..."
-              className="w-full pl-8 pr-3 py-2 rounded-xl text-sm outline-none"
-              style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'rgba(124,58,237,0.6)')}
-              onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')} />
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 16px',
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--panel)',
+          flexShrink: 0,
+        }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 280 }}>
+            <Search size={13} style={{
+              position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+              color: 'var(--text-dim)', pointerEvents: 'none',
+            }} />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="搜索标题 / 作者..."
+              className="input"
+              style={{ paddingLeft: 32, fontSize: 13 }}
+              onFocus={e => {
+                e.currentTarget.style.borderColor = 'var(--border-focus)'
+                e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-subtle)'
+              }}
+              onBlur={e => {
+                e.currentTarget.style.borderColor = 'var(--border-light)'
+                e.currentTarget.style.boxShadow = 'none'
+              }}
+            />
           </div>
 
-          {/* Status filter chips */}
-          <div className="flex gap-1.5">
-            {([
-              { key: 'all', label: `全部 ${counts.all}` },
-              { key: 'running', label: `处理中 ${counts.running}` },
-              { key: 'processed', label: `完成 ${counts.processed}` },
-              { key: 'failed', label: `失败 ${counts.failed}` },
-            ] as const).map(chip => (
-              <button key={chip.key} onClick={() => setStatusFilter(chip.key)}
-                className="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
-                style={chipStyles(statusFilter === chip.key)}>
-                {chip.label}
-              </button>
-            ))}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {filterChips.map(chip => {
+              const isActive = statusFilter === chip.key
+              return (
+                <button
+                  key={chip.key}
+                  onClick={() => setStatusFilter(chip.key)}
+                  style={{
+                    padding: '5px 10px',
+                    borderRadius: 'var(--r-sm)',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    border: `1px solid ${isActive ? 'rgba(91,110,245,0.3)' : 'var(--border-light)'}`,
+                    background: isActive ? 'var(--accent-subtle)' : 'transparent',
+                    color: isActive ? '#a5b4fc' : 'var(--text-dim)',
+                    transition: 'all 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {chip.label} <span style={{ opacity: 0.7, marginLeft: 2 }}>{chip.count}</span>
+                </button>
+              )
+            })}
           </div>
 
-          <button onClick={() => setShowUpload(v => !v)}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ml-auto"
-            style={{ background: 'var(--accent)', color: '#fff' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-hover)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'var(--accent)')}>
-            <Upload size={14} />上传
+          <button
+            onClick={() => setShowUpload(v => !v)}
+            className="btn btn-primary"
+            style={{ fontSize: 13, padding: '6px 14px', marginLeft: 'auto' }}
+          >
+            <Upload size={13} />
+            上传
           </button>
         </div>
 
         {/* Upload panel */}
         <AnimatePresence>
           {showUpload && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }}
-              className="overflow-hidden border-b shrink-0 px-5 py-4"
-              style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
-              <FileUploader />
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              style={{
+                overflow: 'hidden',
+                borderBottom: '1px solid var(--border)',
+                flexShrink: 0,
+                background: 'var(--surface)',
+              }}
+            >
+              <div style={{ padding: '14px 16px' }}>
+                <FileUploader />
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Table */}
-        <div className="flex-1 overflow-y-auto">
+        <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading ? (
-            <div className="flex items-center justify-center h-full" style={{ color: 'var(--text-dim)' }}>
-              <span className="animate-spin mr-2 text-lg">⟳</span>加载中...
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              height: '100%', color: 'var(--text-dim)', gap: 8,
+            }}>
+              <span style={{ animation: 'spin 0.8s linear infinite', fontSize: 18 }}>⟳</span>
+              加载中...
             </div>
           ) : sorted.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full gap-3" style={{ color: 'var(--text-dim)' }}>
-              <FileText size={36} className="opacity-30" />
-              <p className="text-sm">{search || statusFilter !== 'all' ? '无匹配文献' : '暂无文献，请上传 PDF'}</p>
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', height: '100%', gap: 12, color: 'var(--text-dim)',
+            }}>
+              <div style={{
+                width: 56, height: 56,
+                borderRadius: 'var(--r-xl)',
+                background: 'var(--surface)',
+                border: '1px solid var(--border-light)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <FileText size={24} style={{ opacity: 0.3 }} />
+              </div>
+              <p style={{ fontSize: 13.5 }}>
+                {search || statusFilter !== 'all' ? '无匹配文献' : '暂无文献，请上传 PDF'}
+              </p>
             </div>
           ) : (
-            <table className="w-full text-sm border-collapse">
-              <thead className="sticky top-0 z-10" style={{ background: 'var(--panel)' }}>
+            <table className="data-table">
+              <thead>
                 <tr>
                   {cols.map(col => (
-                    <th key={col.key} onClick={() => handleSort(col.key)}
-                      className={`text-left px-4 py-3 text-sm font-medium cursor-pointer select-none border-b ${col.cls ?? ''}`}
-                      style={{ color: 'var(--text-dim)', borderColor: 'var(--border)' }}>
-                      <span className="flex items-center gap-1">
-                        {col.label}<SortIcon dir={sortKey === col.key ? sortDir : null} />
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key)}
+                      className={col.cls}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {col.label}
+                        <SortIcon dir={sortKey === col.key ? sortDir : null} />
                       </span>
                     </th>
                   ))}
-                  <th className="px-4 py-3 border-b w-10" style={{ borderColor: 'var(--border)' }} />
+                  <th style={{ width: 36 }} />
                 </tr>
               </thead>
               <tbody>
@@ -344,32 +453,53 @@ export default function LibraryPage() {
                   const docKey = doc.doc_id ?? String(doc.id)
                   const isSelected = selectedDocId === docKey
                   return (
-                    <tr key={docKey}
+                    <tr
+                      key={docKey}
                       onClick={() => setSelectedDocId(id => id === docKey ? null : docKey)}
                       onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, doc }) }}
-                      className="group border-b cursor-pointer transition-colors"
-                      style={{ borderColor: 'var(--border)', background: isSelected ? 'rgba(124,58,237,0.1)' : 'transparent' }}
-                      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
-                      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent' }}>
-                      <td className="px-4 py-3.5" style={{ color: 'var(--text)' }}>
-                        <p className="truncate max-w-xs">{doc.title || doc.file_path}</p>
+                      className={`group${isSelected ? ' selected' : ''}`}
+                    >
+                      <td>
+                        <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
+                          {doc.title || doc.file_path}
+                        </p>
                       </td>
-                      <td className="px-4 py-3.5 hidden md:table-cell truncate max-w-[140px]" style={{ color: 'var(--text-muted)' }}>
-                        {doc.authors || '-'}
+                      <td className="hidden md:table-cell" style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {doc.authors || '—'}
                       </td>
-                      <td className="px-4 py-3.5 hidden lg:table-cell w-16" style={{ color: 'var(--text-muted)' }}>
-                        {doc.year ?? '-'}
+                      <td className="hidden lg:table-cell">{doc.year ?? '—'}</td>
+                      <td><StatusBadge status={doc.status} /></td>
+                      <td className="hidden xl:table-cell" style={{ textAlign: 'right' }}>
+                        {doc.chunk_count ?? '—'}
                       </td>
-                      <td className="px-4 py-3.5 w-40"><StatusBadge status={doc.status} /></td>
-                      <td className="px-4 py-3.5 hidden xl:table-cell w-16 text-right" style={{ color: 'var(--text-dim)' }}>
-                        {doc.chunk_count ?? '-'}
-                      </td>
-                      <td className="px-4 py-3.5 w-10">
+                      <td>
                         <button
-                          onClick={e => { e.stopPropagation(); setCtxMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().bottom, doc }) }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-lg hover:bg-white/10"
-                          style={{ color: 'var(--text-dim)' }}>
-                          <MoreHorizontal size={15} />
+                          onClick={e => {
+                            e.stopPropagation()
+                            const r = e.currentTarget.getBoundingClientRect()
+                            setCtxMenu({ x: r.left, y: r.bottom, doc })
+                          }}
+                          className="group-hover:opacity-100"
+                          style={{
+                            opacity: 0,
+                            padding: '3px 4px',
+                            borderRadius: 'var(--r-sm)',
+                            color: 'var(--text-dim)',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.opacity = '1'
+                            e.currentTarget.style.background = 'var(--surface2)'
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.opacity = '0'
+                            e.currentTarget.style.background = 'none'
+                          }}
+                        >
+                          <MoreHorizontal size={14} />
                         </button>
                       </td>
                     </tr>
