@@ -10,7 +10,7 @@ DELETE /documents/{doc_id}           — 精确删除文档（只删独占数据
 """
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, UploadFile, File, status
 
 from api.schemas import (
     CitationItem,
@@ -23,6 +23,7 @@ from api.schemas import (
     IngestFileResult,
     IngestStartResponse,
 )
+from src.infrastructure.config import settings
 from src.storage.database import MetadataDatabase
 from src.storage.graph_store import GraphStore
 from src.workflows.ingestion_pipeline import IngestionPipeline
@@ -124,6 +125,42 @@ def ingest_file(req: IngestFileRequest):
     finally:
         pipeline.close()
     return IngestFileResult(**result)
+
+
+_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx"}
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+@router.post("/upload", response_model=IngestStartResponse, status_code=status.HTTP_202_ACCEPTED)
+async def upload_and_ingest(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+):
+    """前端文件上传接口：保存文件到 data/raw_data/ 后异步触发入库。"""
+    safe_name = Path(file.filename).name  # strip any path traversal
+    suffix = Path(safe_name).suffix.lower()
+    if suffix not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型 {suffix}，允许：{', '.join(_ALLOWED_EXTENSIONS)}")
+
+    content = await file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"文件超过大小限制（最大 {_MAX_UPLOAD_BYTES // 1024 // 1024} MB）")
+
+    upload_dir = settings.data_dir / "raw_data"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    dest = upload_dir / safe_name
+    dest.write_bytes(content)
+
+    doc_id = generate_doc_id(compute_file_hash(dest))
+    background_tasks.add_task(_run_ingest_file, str(dest), False)
+    return IngestStartResponse(
+        file_path=str(dest),
+        doc_id=doc_id,
+        accepted=True,
+        status="pending",
+        current_step="已上传，等待入库",
+        message=f"文件 {safe_name} 已接收，后台入库中",
+    )
 
 
 @router.post(

@@ -1,13 +1,11 @@
 """
-配置管理模块
-从 .env 文件读取所有配置，暴露统一的 Settings 对象
+配置管理模块（基础设施层）
 """
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
 
-# 项目根目录（infrastructure/ 在 src/ 下，需上溯两级）
 ROOT_DIR = Path(__file__).parent.parent.parent
 
 
@@ -23,7 +21,7 @@ class Settings(BaseSettings):
     base_url: str = Field(default="https://dashscope.aliyuncs.com/compatible-mode/v1", alias="BASE_URL")
     api_key: str = Field(default="", alias="API_KEY")
     embedding_model_name: str = Field(default="text-embedding-v3", alias="EMBEDDING_MODEL_NAME")
-    embedding_dim: int = 1024  # text-embedding-v3 固定维度
+    embedding_dim: int = 1024
 
     # LLM 稳定性
     llm_timeout_seconds: int = Field(default=30, alias="LLM_TIMEOUT_SECONDS")
@@ -52,7 +50,7 @@ class Settings(BaseSettings):
     neo4j_username: str = Field(default="neo4j", alias="NEO4J_USERNAME")
     neo4j_password: str = Field(default="neo4j", alias="NEO4J_PASSWORD")
 
-    # Token 费用估算（DashScope 参考定价，可通过 .env 覆盖）
+    # Token 费用估算
     price_per_1k_prompt: float = Field(default=0.04, alias="PRICE_PER_1K_PROMPT")
     price_per_1k_completion: float = Field(default=0.12, alias="PRICE_PER_1K_COMPLETION")
 
@@ -66,5 +64,4 @@ class Settings(BaseSettings):
     reranker_max_candidates: int = Field(default=50, alias="RERANKER_MAX_CANDIDATES")
 
 
-# 全局单例
 settings = Settings()

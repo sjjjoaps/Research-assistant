@@ -1,6 +1,6 @@
 """
-LLM 客户端封装
-基于 LangChain 1.0 封装统一的聊天模型创建逻辑
+LLM 客户端封装（兼容转发层）
+实际实现已迁移至 src/infrastructure/llm_client.py（P2-Step 2）
 """
 from langchain_openai import ChatOpenAI
 

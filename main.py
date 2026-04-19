@@ -23,6 +23,7 @@ FastAPI 应用入口（Phase 8-8 最终版）。
 """
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import chat, community, documents, graph, research
 from api.routers import agent as agent_router_module   # Phase 8-6: MasterAgent SSE
@@ -33,6 +34,15 @@ app = FastAPI(
     title="学术文献知识库助手 API",
     description="GraphAssistant — 文献入库、问答、深度研究、Idea 生成、MasterAgent 流式对话",
     version="1.1.0",
+)
+
+# CORS — 允许 React dev server (Vite :5173) 和生产构建访问
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 注册路由

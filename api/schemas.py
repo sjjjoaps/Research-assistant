@@ -149,6 +149,14 @@ class GraphSubgraphResponse(BaseModel):
     edges: list[GraphEdge]
 
 
+class GraphNodesResponse(BaseModel):
+    nodes: list[GraphNode]
+
+
+class GraphEdgesResponse(BaseModel):
+    edges: list[GraphEdge]
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 问答
 # ──────────────────────────────────────────────────────────────────────────────

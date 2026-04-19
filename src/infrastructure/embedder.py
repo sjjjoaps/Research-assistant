@@ -1,6 +1,6 @@
 """
-Embedding 封装模块
-基于阿里云 text-embedding-v3，对文本列表批量生成向量
+Embedding 封装模块（兼容转发层）
+实际实现已迁移至 src/infrastructure/embedder.py（P2-Step 2）
 """
 from langchain_community.embeddings import DashScopeEmbeddings
 

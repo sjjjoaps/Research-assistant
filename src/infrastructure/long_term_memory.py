@@ -1,54 +1,6 @@
 """
-文件系统长期记忆（Phase 9-5 重构版）
-
-借鉴 Claude Code 自身的记忆系统设计，将跨会话策略经验与用户偏好存储为
-独立 Markdown 文件，`MEMORY.md` 仅作索引，正文全部存入各自的 `{slug}.md`。
-
-数据目录：data/memory/（路径来自 settings.data_dir）
-
-目录结构：
-    data/memory/
-    ├─ MEMORY.md                      ← 索引，每行格式：- [title](slug.md) — hook
-    ├─ strategy_specific_local.md     ← 策略类记忆文件
-    ├─ strategy_temporal_mix.md
-    └─ ...
-
-单条记忆文件格式（frontmatter + 正文）：
-    ---
-    title: temporal 查询优先 mix
-    type: strategy               # strategy / preference / qa / note
-    question_type: temporal      # strategy 类专用
-    mode: mix                    # strategy 类专用
-    description: 时间敏感问题优先 mix，避免 local/global 对最新文献召回过窄。
-    sample_count: 8              # strategy 类：总样本数
-    success_count: 7             # strategy 类：成功样本数
-    updated_at: 2026-04-17T10:00:00Z
-    ---
-
-    正文说明（Markdown）...
-
-核心公开接口：
-    classify_question_type(query)        → str（模块级，供 tool_registry 跨模块调用）
-    _slugify(title)                      → str（模块级，供 tool 导入）
-    LongTermMemory.save_memory(...)      → None（写单条记忆 + 更新 MEMORY.md）
-    LongTermMemory.list_memory_index()  → list[dict]（解析 MEMORY.md 索引）
-    LongTermMemory.find_relevant_memories(query, question_type) → list[dict]
-    LongTermMemory.get_best_mode(question_type) → str | None
-    LongTermMemory.record_strategy_result(...)  → None（后台更新策略记忆文件）
-    LongTermMemory.record_qa_pair(...)          → None（兼容保留，暂为 stub）
-    LongTermMemory.get_instance()               → LongTermMemory（单例）
-
-设计要点：
-    [1] 懒加载目录初始化（避免导入时即创建文件系统）
-    [2] 写操作 try/except 包裹，失败只记 WARNING 不影响主流程
-    [3] MEMORY.md 写入由 self._lock 保护（防多线程竞争）
-    [4] _do_record_strategy() 整个读-改-写序列受 self._lock 保护（防计数竞争）
-    [5] get_best_mode() 要求 sample_count >= MIN_SAMPLES 才给出建议
-    [6] get_best_mode() 返回前校验 _VALID_MODES 白名单
-    [7] temporal 类查询由 tool_registry 跳过 LTM（时效性路由不允许被历史覆盖）
-    [8] 无 pyyaml 依赖，frontmatter 手动解析
-    [9] classify_question_type() 保持原有签名，供 tool_registry 导入
-   [10] MEMORY.md 绝不写正文，只写一行式索引
+文件系统长期记忆（兼容转发层）
+实际实现已迁移至 src/infrastructure/long_term_memory.py（P2-Step 2）
 """
 from __future__ import annotations
 
