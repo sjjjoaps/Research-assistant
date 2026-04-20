@@ -89,6 +89,9 @@ class MetadataExtractor:
             data.setdefault("authors", [])
             if isinstance(data["authors"], str):
                 data["authors"] = [a.strip() for a in data["authors"].split(";") if a.strip()]
+            data.setdefault("keywords", [])
+            if isinstance(data["keywords"], str):
+                data["keywords"] = [k.strip() for k in re.split(r"[;,，、]", data["keywords"]) if k.strip()]
             return DocumentMetadata(**data)
         except Exception as e:
             print(f"[MetadataExtractor] LLM 提取失败，降级为正则提取。原因: {e}")

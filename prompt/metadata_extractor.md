@@ -23,15 +23,21 @@
 ### 任务示例
 
 **示例 1**
-输入文本（截取）："Attention Is All You Need\nAshish Vaswani, Noam Shazeer...\nGoogle Brain, 2017\nAbstract: We propose a new simple network architecture..."
+输入文本（截取）："Attention Is All You Need\nAshish Vaswani, Noam Shazeer...\nGoogle Brain, 2017\nAbstract: We propose a new simple network architecture...\nKeywords: transformer, self-attention, neural machine translation, sequence modeling"
 
 输出：
-{"title": "Attention Is All You Need", "authors": ["Ashish Vaswani", "Noam Shazeer"], "institution": "Google Brain", "year": 2017, "abstract": "We propose a new simple network architecture...", "keywords": []}
+{"title": "Attention Is All You Need", "authors": ["Ashish Vaswani", "Noam Shazeer"], "institution": "Google Brain", "year": 2017, "abstract": "We propose a new simple network architecture...", "keywords": ["transformer", "self-attention", "neural machine translation", "sequence modeling"]}
+
+**示例 2**
+输入文本（截取）："GraphSAGE: Inductive Representation Learning on Large Graphs\nWilliam L. Hamilton, Rex Ying, Jure Leskovec\nStanford University, 2017\nAbstract: We present GraphSAGE..."
+
+输出：
+{"title": "GraphSAGE: Inductive Representation Learning on Large Graphs", "authors": ["William L. Hamilton", "Rex Ying", "Jure Leskovec"], "institution": "Stanford University", "year": 2017, "abstract": "We present GraphSAGE...", "keywords": []}
 
 ---
 
 ## Human Prompt Template
 
-以下是论文首页文本（最多 5000 字符），请提取：标题、作者列表、发表年份、摘要、关键词。
+以下是论文首页文本（最多 10000 字符），请提取：标题、作者列表、发表机构、发表年份、摘要、关键词。若文本中明确出现 Keywords 字段，必须提取其内容。
 
 {context}
