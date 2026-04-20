@@ -329,6 +329,8 @@ class MasterAgent:
 
             text_buffer: list[str] = []
             pending_tool_calls: list[dict] = []
+            # Track which tool names we've already sent tool_start for this iteration
+            announced_tool_names: set[str] = set()
 
             try:
                 async for chunk in self._llm.astream(messages, tools=self._tool_schemas):
@@ -345,6 +347,15 @@ class MasterAgent:
                     raw_calls = getattr(delta, "tool_calls", None)
                     if raw_calls:
                         _accumulate_tool_calls(pending_tool_calls, raw_calls)
+                        # Eagerly announce tool_start as soon as we know the tool name
+                        for tc in pending_tool_calls:
+                            name = tc.get("name", "")
+                            if name and name not in announced_tool_names:
+                                announced_tool_names.add(name)
+                                yield ToolStartEvent(
+                                    tool_name=name,
+                                    display_message=TOOL_DISPLAY_NAMES.get(name, "正在处理..."),
+                                )
 
                     _accumulate_tokens(total_tokens, chunk)
 
@@ -381,14 +392,20 @@ class MasterAgent:
                     iteration, sum(len(t) for t in text_buffer),
                 )
 
+            # First pass: announce all tool_starts for tools not caught during streaming
+            for tool_call in final_tool_calls:
+                tool_name = tool_call.get("name", "")
+                if tool_name and tool_name not in announced_tool_names:
+                    announced_tool_names.add(tool_name)
+                    yield ToolStartEvent(
+                        tool_name=tool_name,
+                        display_message=TOOL_DISPLAY_NAMES.get(tool_name, "正在处理..."),
+                    )
+
+            # Second pass: execute each tool and emit tool_end
             for tool_call in final_tool_calls:
                 start_time = time.time()
                 tool_name  = tool_call.get("name", "")
-
-                yield ToolStartEvent(
-                    tool_name=tool_name,
-                    display_message=TOOL_DISPLAY_NAMES.get(tool_name, "正在处理..."),
-                )
 
                 result_content = await self._execute_tool_safe(
                     session_id=session_id,

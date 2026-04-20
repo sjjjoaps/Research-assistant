@@ -289,6 +289,8 @@ class KeywordExtractor:
             response = llm.invoke([{"role": "user", "content": prompt}])
             content = str(response.get("content") or "").strip()
             data = extract_json(content)
+            if not isinstance(data, dict):
+                raise ValueError(f"期望 dict，得到 {type(data).__name__}")
             ll = self._trim_keywords([str(k) for k in data.get("ll_keywords", []) if k])
             hl = self._trim_keywords([str(k) for k in data.get("hl_keywords", []) if k])
             return KeywordResult(ll_keywords=ll, hl_keywords=hl, raw_query=query)

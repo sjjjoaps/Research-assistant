@@ -34,9 +34,7 @@ LLM 判断输出格式（JSON）：
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
 from typing import Optional
 
 from src.agents.prompt_loader import load_system_prompt
@@ -128,13 +126,16 @@ def _call_extractor_llm(user_input: str, ai_response: str) -> Optional[dict]:
         result  = llm.invoke(messages)
         content = str(result.get("content") or "").strip()
 
-        # 提取 JSON（兼容被 markdown 包裹的情况）
-        json_match = re.search(r"\{.*?\}", content, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-
-        logger.warning("后台 extractor LLM 返回内容无法解析为 JSON: %.100s", content)
-        return None
+        # 提取 JSON（使用 extract_json 兼容 markdown 包裹、嵌套对象等情况）
+        try:
+            from src.infrastructure.json_utils import extract_json
+            data = extract_json(content)
+            if not isinstance(data, dict):
+                raise ValueError(f"期望 dict，得到 {type(data).__name__}")
+            return data
+        except (ValueError, Exception):
+            logger.warning("后台 extractor LLM 返回内容无法解析为 JSON: %.100s", content)
+            return None
 
     except Exception as exc:
         logger.warning("后台 extractor LLM 调用失败: %s", exc)

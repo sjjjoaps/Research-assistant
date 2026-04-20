@@ -40,21 +40,15 @@ class ParsedDocument:
 class DocumentParser:
     def __init__(
         self,
-        enable_modal_extraction: bool = False,
-        enable_section_recognition: bool = False,
+        enable_modal_extraction: bool = True,
+        enable_section_recognition: bool = True,
+        modal_max_images: int = 20,
+        modal_max_tables: int = 20,
     ) -> None:
-        """初始化文档解析器。
-
-        Args:
-            enable_modal_extraction: 是否启用多模态内容提取（图片/表格）。
-                默认 False，仅对 PDF 生效。启用后会调用 LLM 生成描述，
-                会增加入库耗时。
-            enable_section_recognition: 是否启用章节结构识别。
-                默认 False，仅对 PDF 生效。启用后会识别每页所属章节类型，
-                并写入 page_sections / page_section_titles 字段。
-        """
         self.enable_modal_extraction = enable_modal_extraction
         self.enable_section_recognition = enable_section_recognition
+        self.modal_max_images = modal_max_images
+        self.modal_max_tables = modal_max_tables
 
     def parse(self, file_path: str | Path) -> ParsedDocument:
         path = Path(file_path)
@@ -86,7 +80,11 @@ class DocumentParser:
         modal_contents = []
         if self.enable_modal_extraction:
             from src.ingestion.modal_processors import extract_modal_contents_from_pdf
-            modal_contents = extract_modal_contents_from_pdf(str(path))
+            modal_contents = extract_modal_contents_from_pdf(
+                str(path),
+                max_images=self.modal_max_images,
+                max_tables=self.modal_max_tables,
+            )
 
         page_sections: list[str] = []
         page_section_titles: list[str] = []

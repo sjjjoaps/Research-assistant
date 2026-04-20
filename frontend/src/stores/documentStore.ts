@@ -26,5 +26,5 @@ export const useDocumentStore = create<DocumentState>((set) => ({
       return { documents: [...s.documents, doc] }
     }),
   removeDocument: (docId) =>
-    set((s) => ({ documents: s.documents.filter(d => d.doc_id !== docId) })),
+    set((s) => ({ documents: s.documents.filter(d => (d.doc_id ?? String(d.id)) !== docId) })),
 }))

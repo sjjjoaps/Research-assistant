@@ -22,7 +22,7 @@ _FILTER_EXPAND = 3   # section_filter 时扩大候选池的倍数
 
 class LocalRetriever:
     def __init__(self, top_k: int = 5) -> None:
-        self.top_k = top_k
+        self.top_k = int(top_k)
         self.semantic_retriever = SemanticRetriever(top_k=top_k * 2)
         self.graph_retriever = GraphRetriever(top_k=top_k * 2, expand_entities=True)
 

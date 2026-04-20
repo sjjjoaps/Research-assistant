@@ -49,7 +49,7 @@ class LightRAGDualRetriever:
     """
 
     def __init__(self, top_k: int = 5) -> None:
-        self.top_k = top_k
+        self.top_k = int(top_k)
         self._keyword_extractor = None
         self._graph_retriever = None
         self._graph_store = None
@@ -90,7 +90,7 @@ class LightRAGDualRetriever:
         Returns:
             去重后的 RetrievedChunk 列表，长度 ≤ top_k。
         """
-        k = top_k if top_k is not None else self.top_k
+        k = int(top_k if top_k is not None else self.top_k)
 
         # (i) 双极关键词提取
         try:

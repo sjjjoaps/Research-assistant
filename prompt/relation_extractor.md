@@ -16,6 +16,10 @@
 
 **关系类型**：PROPOSES / USES / EVALUATES_ON / OUTPERFORMS / APPLIES_TO / BASED_ON
 
+**输出字段**：
+- 实体：`name`（原文术语）、`entity_type`（从上述类型中选一）、`description`（可选简短描述）
+- 关系：`source_name`、`relation_type`（从上述类型中选一）、`target_name`、`description`（可选）
+
 **抽取步骤**：
 1. 识别文本中明确出现的实体，使用原文完整术语，避免无信息量的简称或代词
 2. 只抽取两个已识别实体之间"明确表达"的关系
@@ -32,22 +36,20 @@
 **示例 1**
 文本："本文提出 GraphSAGE，通过邻居采样在 Reddit 数据集上进行节点分类评测，F1 超越 GCN 约 3%。"
 
-输出（JSON）：
-```json
+输出（JSON，直接输出，不要用 ``` 包裹）：
 {{
   "entities": [
-    {{"name": "GraphSAGE", "type": "Model", "description": "基于邻居采样的归纳图神经网络"}},
-    {{"name": "Reddit", "type": "Dataset", "description": "大规模社交网络节点分类数据集"}},
-    {{"name": "GCN", "type": "Model", "description": "图卷积网络"}},
-    {{"name": "节点分类", "type": "Task", "description": "图上的节点标签预测任务"}},
-    {{"name": "F1", "type": "Metric", "description": "分类评估指标"}}
+    {{"name": "GraphSAGE", "entity_type": "Model", "description": "基于邻居采样的归纳图神经网络"}},
+    {{"name": "Reddit", "entity_type": "Dataset", "description": "大规模社交网络节点分类数据集"}},
+    {{"name": "GCN", "entity_type": "Model", "description": "图卷积网络"}},
+    {{"name": "节点分类", "entity_type": "Task", "description": "图上的节点标签预测任务"}},
+    {{"name": "F1", "entity_type": "Metric", "description": "分类评估指标"}}
   ],
   "relations": [
-    {{"source": "GraphSAGE", "relation": "EVALUATES_ON", "target": "Reddit", "description": "在 Reddit 数据集上进行节点分类评测"}},
-    {{"source": "GraphSAGE", "relation": "OUTPERFORMS", "target": "GCN", "description": "F1 超越 GCN 约 3%"}}
+    {{"source_name": "GraphSAGE", "relation_type": "EVALUATES_ON", "target_name": "Reddit", "description": "在 Reddit 数据集上进行节点分类评测"}},
+    {{"source_name": "GraphSAGE", "relation_type": "OUTPERFORMS", "target_name": "GCN", "description": "F1 超越 GCN 约 3%"}}
   ]
 }}
-```
 
 ---
 

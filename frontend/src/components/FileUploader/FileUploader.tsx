@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { AnimatePresence } from 'framer-motion'
-import { uploadDocument } from '../../api/client'
+import { uploadDocument, listDocuments } from '../../api/client'
 import { useDocumentStore } from '../../stores/documentStore'
 import ParseProgress from '../ParseProgress/ParseProgress'
 import type { Document } from '../../types'
@@ -12,7 +12,7 @@ interface UploadEntry {
 }
 
 export default function FileUploader() {
-  const { upsertDocument } = useDocumentStore()
+  const { upsertDocument, setDocuments } = useDocumentStore()
   const [uploads, setUploads] = useState<UploadEntry[]>([])
   const [uploading, setUploading] = useState(false)
 
@@ -54,8 +54,13 @@ export default function FileUploader() {
     accept: { 'application/pdf': ['.pdf'], 'text/plain': ['.txt'], 'text/markdown': ['.md'] },
   })
 
-  const removeEntry = (docId: string) =>
+  const removeEntry = (docId: string) => {
     setUploads(prev => prev.filter(u => u.docId !== docId))
+    // Refresh full document list to get real metadata (title, authors, abstract, etc.)
+    listDocuments()
+      .then(data => setDocuments(data.documents ?? data ?? []))
+      .catch(() => undefined)
+  }
 
   return (
     <div className="flex flex-col gap-3">

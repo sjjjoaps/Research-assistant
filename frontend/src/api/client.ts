@@ -144,3 +144,15 @@ export async function getGraphEdges(params?: { node_id?: string; node_types?: st
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+// ── Community ─────────────────────────────────────────────────────────────────
+
+export async function detectCommunities(minCommunitySize: number) {
+  const res = await fetch(`${BASE}/community/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ min_community_size: minCommunitySize }),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}

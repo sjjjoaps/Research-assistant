@@ -152,7 +152,7 @@ class DeepResearchAgent(BaseAgent):
     ) -> None:
         super().__init__(max_history_turns=5)
         self.top_k = top_k
-        self.max_subquestions = max_subquestions
+        self.max_subquestions = int(max_subquestions)
         self.retriever_mode = retriever_mode
         self.use_community = use_community
         self.retriever = _make_retriever(retriever_mode, top_k)
@@ -172,8 +172,14 @@ class DeepResearchAgent(BaseAgent):
 
         # 优先尝试 JSON 格式（{"sub_questions": [...]}）
         try:
-            result = SubQuestionList(**extract_json(content))
-            return result.sub_questions[: self.max_subquestions]
+            data = extract_json(content)
+            if isinstance(data, list):
+                questions = [str(q) for q in data if q]
+                return questions[: self.max_subquestions]
+            if isinstance(data, dict):
+                data.setdefault("sub_questions", [])
+                result = SubQuestionList(**data)
+                return result.sub_questions[: self.max_subquestions]
         except (ValueError, Exception):
             pass
 

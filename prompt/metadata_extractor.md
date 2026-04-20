@@ -26,9 +26,7 @@
 输入文本（截取）："Attention Is All You Need\nAshish Vaswani, Noam Shazeer...\nGoogle Brain, 2017\nAbstract: We propose a new simple network architecture..."
 
 输出：
-```json
 {"title": "Attention Is All You Need", "authors": ["Ashish Vaswani", "Noam Shazeer"], "institution": "Google Brain", "year": 2017, "abstract": "We propose a new simple network architecture...", "keywords": []}
-```
 
 ---
 

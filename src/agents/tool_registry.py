@@ -1139,12 +1139,12 @@ def _search_by_entity_func(entity_name: str, relation_type: str = "") -> str:
             from src.storage.graph_store import GraphStore as _GS
         gs = _GS()
         subgraph = gs.get_subgraph(
-            entity_name=entity_name,
-            relation_type=relation_type if relation_type else None,
+            search=entity_name,
+            limit=50,
         )
         gs.close()
         nodes     = subgraph.get("nodes", [])
-        relations = subgraph.get("relations", [])
+        relations = subgraph.get("edges", [])
         if not nodes and not relations:
             return (
                 f"未在知识图谱中找到实体 '{entity_name}' 的相关信息。\n"
@@ -1162,9 +1162,9 @@ def _search_by_entity_func(entity_name: str, relation_type: str = "") -> str:
         if relations:
             lines.append(f"\n**关联关系（{len(relations)} 条）：**")
             for r in relations[:15]:
-                src   = r.get("source") or r.get("from", "?")
-                rtype = r.get("type") or r.get("relation_type", "关联")
-                tgt   = r.get("target") or r.get("to", "?")
+                src   = r.get("source", "?")
+                rtype = r.get("type") or r.get("label", "关联")
+                tgt   = r.get("target", "?")
                 desc  = r.get("description", "")
                 lines.append(f"- `{src}` —[{rtype}]→ `{tgt}`" + (f"：{desc}" if desc else ""))
         return "\n".join(lines)

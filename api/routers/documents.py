@@ -47,8 +47,11 @@ def _prepare_doc_identity(file_path: str) -> tuple[Path, str]:
     return path, generate_doc_id(compute_file_hash(path))
 
 
-def _run_ingest_file(file_path: str, enable_entity_extraction: bool) -> None:
-    pipeline = IngestionPipeline(enable_entity_extraction=enable_entity_extraction)
+def _run_ingest_file(file_path: str, enable_entity_extraction: bool, enable_modal_extraction: bool = False) -> None:
+    pipeline = IngestionPipeline(
+        enable_entity_extraction=enable_entity_extraction,
+        enable_modal_extraction=enable_modal_extraction,
+    )
     try:
         pipeline.ingest_file(file_path)
     finally:
@@ -152,7 +155,7 @@ async def upload_and_ingest(
     dest.write_bytes(content)
 
     doc_id = generate_doc_id(compute_file_hash(dest))
-    background_tasks.add_task(_run_ingest_file, str(dest), False)
+    background_tasks.add_task(_run_ingest_file, str(dest), True, settings.enable_modal_extraction)
     return IngestStartResponse(
         file_path=str(dest),
         doc_id=doc_id,

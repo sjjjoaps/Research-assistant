@@ -71,10 +71,10 @@ class MetadataExtractor:
     def extract(self, document: ParsedDocument) -> DocumentMetadata:
         """
         从 ParsedDocument 中提取元数据。
-        取首页前 5000 字符送入 LLM；失败时降级为正则提取。
+        取首页前 10000 字符送入 LLM；失败时降级为正则提取。
         """
         first_page = document.pages[0] if document.pages else document.raw_text
-        context = first_page[:5000]
+        context = first_page[:10000]
 
         try:
             resp = self._llm.invoke([
@@ -82,7 +82,14 @@ class MetadataExtractor:
                 {"role": "user",   "content": _meta_human.format(context=context)},
             ])
             content = str(resp.get("content") or "").strip()
-            return DocumentMetadata(**extract_json(content))
+            data = extract_json(content)
+            if not isinstance(data, dict):
+                raise ValueError(f"期望 dict，得到 {type(data).__name__}")
+            data.setdefault("title", "Unknown")
+            data.setdefault("authors", [])
+            if isinstance(data["authors"], str):
+                data["authors"] = [a.strip() for a in data["authors"].split(";") if a.strip()]
+            return DocumentMetadata(**data)
         except Exception as e:
             print(f"[MetadataExtractor] LLM 提取失败，降级为正则提取。原因: {e}")
             return _regex_extract(context)

@@ -154,3 +154,21 @@ def get_native_llm(temperature: float = 0.0) -> LLMClient:
     if not settings.api_key:
         raise ValueError("API_KEY 未配置，请检查 .env 文件")
     return LLMClient(temperature=temperature)
+
+
+@lru_cache(maxsize=4)
+def get_vision_llm(temperature: float = 0.0) -> LLMClient:
+    """视觉模型工厂，使用 VISION_MODEL_NAME 配置的模型（如 qwen-vl-plus）。"""
+    if not settings.api_key:
+        raise ValueError("API_KEY 未配置，请检查 .env 文件")
+    client = LLMClient.__new__(LLMClient)
+    from openai import AsyncOpenAI
+    client.model = settings.vision_model_name
+    client.temperature = temperature
+    client._client = AsyncOpenAI(
+        api_key=settings.api_key,
+        base_url=settings.base_url,
+        timeout=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
+    )
+    return client

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Search, Upload, Trash2, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, X, FileText, MoreHorizontal } from 'lucide-react'
+import { Search, Upload, Trash2, RefreshCw, ChevronUp, ChevronDown, ChevronsUpDown, X, FileText, MoreHorizontal, Loader2 } from 'lucide-react'
 import { listDocuments, deleteDocument, getDocumentStatus } from '../api/client'
 import { useDocumentStore } from '../stores/documentStore'
 import FileUploader from '../components/FileUploader/FileUploader'
@@ -16,13 +16,17 @@ function StatusBadge({ status }: { status: string | null }) {
   let cls = 'badge badge-default'
   if (s === 'processed') cls = 'badge badge-success'
   else if (s === 'failed') cls = 'badge badge-danger'
+  else if (s === 'deleting') cls = 'badge badge-danger'
   else if (RUNNING_STATUS_SET.has(s)) cls = 'badge badge-warning'
   return (
     <span className={cls}>
+      {s === 'deleting' && (
+        <span style={{ display: 'inline-block', animation: 'spin 0.8s linear infinite' }}>⟳</span>
+      )}
       {RUNNING_STATUS_SET.has(s) && (
         <span style={{ display: 'inline-block', animation: 'spin 0.8s linear infinite' }}>⟳</span>
       )}
-      {s}
+      {s === 'deleting' ? '删除中' : s}
     </span>
   )
 }
@@ -213,6 +217,7 @@ function ContextMenu({ menu, onDelete, onRefresh, onClose }: {
 export default function LibraryPage() {
   const { documents, setDocuments, loading, setLoading, removeDocument, upsertDocument } = useDocumentStore()
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
   const selected = selectedDocId ? (documents.find(d => (d.doc_id ?? String(d.id)) === selectedDocId) ?? null) : null
 
   const [search, setSearch] = useState('')
@@ -234,9 +239,12 @@ export default function LibraryPage() {
     const running = documents.filter(d => RUNNING_STATUS_SET.has(d.status ?? ''))
     if (running.length === 0) return
     const timer = setInterval(async () => {
-      for (const doc of running) {
+      // Always read fresh state so deleted docs are never re-added
+      const currentDocs = useDocumentStore.getState().documents
+      for (const doc of currentDocs.filter(d => RUNNING_STATUS_SET.has(d.status ?? ''))) {
+        if (!doc.doc_id) continue
         try {
-          const statusData = await getDocumentStatus(doc.doc_id ?? String(doc.id))
+          const statusData = await getDocumentStatus(doc.doc_id)
           upsertDocument({ ...doc, ...statusData })
         } catch { /* ignore */ }
       }
@@ -247,14 +255,27 @@ export default function LibraryPage() {
 
   const handleDelete = useCallback(async (doc: Document) => {
     if (!confirm(`确认删除 ${doc.title || doc.file_path}？`)) return
-    try { await deleteDocument(doc.doc_id ?? String(doc.id)) } catch { /* ignore */ }
-    removeDocument(doc.doc_id ?? String(doc.id))
-    if (selectedDocId === (doc.doc_id ?? String(doc.id))) setSelectedDocId(null)
+    const docKey = doc.doc_id ?? String(doc.id)
+    setDeletingDocId(docKey)
+    if (selectedDocId === docKey) setSelectedDocId(null)
+    if (doc.doc_id) {
+      try {
+        await deleteDocument(doc.doc_id)
+      } catch (e) {
+        // Backend delete failed — keep doc in UI so it doesn't ghost-reappear on refresh
+        setDeletingDocId(null)
+        alert(`删除失败：${e instanceof Error ? e.message : '未知错误'}`)
+        return
+      }
+    }
+    removeDocument(docKey)
+    setDeletingDocId(null)
   }, [selectedDocId, removeDocument])
 
   const handleRefresh = useCallback(async (doc: Document) => {
+    if (!doc.doc_id) return
     try {
-      const statusData = await getDocumentStatus(doc.doc_id ?? String(doc.id))
+      const statusData = await getDocumentStatus(doc.doc_id)
       upsertDocument({ ...doc, ...statusData })
     } catch { /* ignore */ }
   }, [upsertDocument])
@@ -449,15 +470,23 @@ export default function LibraryPage() {
                 </tr>
               </thead>
               <tbody>
+                <AnimatePresence>
                 {sorted.map(doc => {
                   const docKey = doc.doc_id ?? String(doc.id)
                   const isSelected = selectedDocId === docKey
+                  const isDeleting = deletingDocId === docKey
                   return (
-                    <tr
+                    <motion.tr
                       key={docKey}
-                      onClick={() => setSelectedDocId(id => id === docKey ? null : docKey)}
+                      layout
+                      initial={{ opacity: 1, x: 0 }}
+                      animate={isDeleting ? { opacity: 0.4, x: -8, backgroundColor: 'rgba(244,63,94,0.08)' } : { opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -40, transition: { duration: 0.25 } }}
+                      transition={{ duration: 0.2 }}
+                      onClick={() => !isDeleting && setSelectedDocId(id => id === docKey ? null : docKey)}
                       onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, doc }) }}
                       className={`group${isSelected ? ' selected' : ''}`}
+                      style={{ cursor: isDeleting ? 'not-allowed' : 'pointer', position: 'relative' }}
                     >
                       <td>
                         <p style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 320 }}>
@@ -468,11 +497,14 @@ export default function LibraryPage() {
                         {doc.authors || '—'}
                       </td>
                       <td className="hidden lg:table-cell">{doc.year ?? '—'}</td>
-                      <td><StatusBadge status={doc.status} /></td>
+                      <td><StatusBadge status={isDeleting ? 'deleting' : doc.status} /></td>
                       <td className="hidden xl:table-cell" style={{ textAlign: 'right' }}>
                         {doc.chunk_count ?? '—'}
                       </td>
                       <td>
+                        {isDeleting ? (
+                          <Loader2 size={14} style={{ color: 'var(--danger)', animation: 'spin 0.8s linear infinite' }} />
+                        ) : (
                         <button
                           onClick={e => {
                             e.stopPropagation()
@@ -501,10 +533,12 @@ export default function LibraryPage() {
                         >
                           <MoreHorizontal size={14} />
                         </button>
+                        )}
                       </td>
-                    </tr>
+                    </motion.tr>
                   )
                 })}
+                </AnimatePresence>
               </tbody>
             </table>
           )}

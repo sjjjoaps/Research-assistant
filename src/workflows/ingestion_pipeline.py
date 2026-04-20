@@ -71,10 +71,10 @@ class IngestionPipeline:
     def __init__(
         self,
         enable_entity_extraction: bool | None = None,
-        enable_modal_extraction: bool = False,
+        enable_modal_extraction: bool | None = None,
         enable_section_recognition: bool = False,
         enable_citation_extraction: bool = False,
-        enable_section_chunking: bool = True,   # Phase 10-1：启用语义分块
+        enable_section_chunking: bool = True,
     ) -> None:
         self._enable_entity_extraction = (
             enable_entity_extraction
@@ -83,9 +83,12 @@ class IngestionPipeline:
         )
         self._enable_citation_extraction = enable_citation_extraction
 
+        _modal = enable_modal_extraction if enable_modal_extraction is not None else settings.enable_modal_extraction
         self.document_parser = DocumentParser(
-            enable_modal_extraction=enable_modal_extraction,
+            enable_modal_extraction=_modal,
             enable_section_recognition=enable_section_recognition,
+            modal_max_images=settings.modal_max_images,
+            modal_max_tables=settings.modal_max_tables,
         )
         # Phase 10-1：启用语义分块时使用 SectionChunker；否则沿用 DocumentChunker。
         # 注意：SectionChunker 内部会在以下情况自动 fallback 到 DocumentChunker：
@@ -480,8 +483,12 @@ class IngestionPipeline:
                 deleted_entities = self.graph_store.delete_entities_by_ids(orphan_ids)
             print(f"  Neo4j 删除孤立实体: {deleted_entities} 个")
 
-            # [6] SQLite 元数据
-            self.database.delete_document(file_path)
+            # [6] SQLite 元数据（优先按 doc_id 删，file_path 作为兜底）
+            deleted_sqlite = self.database.delete_document_by_doc_id(doc_id)
+            if not deleted_sqlite:
+                deleted_sqlite = self.database.delete_document(file_path)
+            if not deleted_sqlite:
+                print(f"  [WARN] SQLite 未找到匹配记录 (doc_id={doc_id}, file_path={file_path})，跳过")
 
             # [7] ChunkTracker
             self.chunk_tracker.delete_by_doc(doc_id)

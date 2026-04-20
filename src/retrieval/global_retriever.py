@@ -26,7 +26,7 @@ from src.storage.relation_vector_store import RelationVectorStore
 
 class GlobalRetriever:
     def __init__(self, top_k: int = 5) -> None:
-        self.top_k = top_k
+        self.top_k = int(top_k)
         self.relation_vector_store = RelationVectorStore()
         self.relation_vector_store.load()
         self.graph_retriever = GraphRetriever(top_k=top_k * 2, expand_entities=True)

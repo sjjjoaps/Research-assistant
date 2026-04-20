@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { flushSync } from 'react-dom'
 import { streamChat, listSessions } from '../api/client'
 import { useChatStore } from '../stores/chatStore'
 import type { ToolCall } from '../types'
@@ -11,15 +12,18 @@ export function useSSE() {
   } = useChatStore()
 
   const send = useCallback(async (sessionId: string, message: string) => {
-    addMessage({ role: 'user', content: message })
-    setStreaming(true)
+    // Clear stale tool calls and start streaming atomically
+    flushSync(() => {
+      clearToolCalls()
+      addMessage({ role: 'user', content: message })
+      setStreaming(true)
+    })
 
     try {
       for await (const event of streamChat(sessionId, message)) {
         switch (event.type) {
           case 'session_start':
             setCurrentSession(event.session_id)
-            clearToolCalls()  // clear here so tool panel resets before first tool_start
             break
           case 'text_delta':
             appendDelta(event.delta)
@@ -33,7 +37,8 @@ export function useSSE() {
               status: 'loading',
               display_message: event.display_message,
             }
-            upsertToolCall(tc)
+            // flushSync ensures the tool card appears immediately, not batched
+            flushSync(() => upsertToolCall(tc))
             break
           }
           case 'tool_end': {
@@ -43,14 +48,13 @@ export function useSSE() {
               result_summary: event.result_summary,
               elapsed_ms: event.elapsed_ms,
             }
-            upsertToolCall(tc)
+            flushSync(() => upsertToolCall(tc))
             break
           }
           case 'error':
             appendDelta(`\n\n[错误] ${event.message}`)
             break
           case 'done':
-            // 流结束后拉取最新会话列表（含 title/turn_count 更新）
             listSessions()
               .then((data: unknown) => {
                 const list: import('../types').Session[] = Array.isArray(data)

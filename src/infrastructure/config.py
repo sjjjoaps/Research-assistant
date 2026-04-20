@@ -17,11 +17,12 @@ class Settings(BaseSettings):
     )
 
     # LLM 配置
-    model_name: str = Field(default="qwen3.5-flash", alias="MODEL_NAME")
+    model_name: str = Field(default="qwen-flash", alias="MODEL_NAME")
     base_url: str = Field(default="https://dashscope.aliyuncs.com/compatible-mode/v1", alias="BASE_URL")
     api_key: str = Field(default="", alias="API_KEY")
     embedding_model_name: str = Field(default="text-embedding-v3", alias="EMBEDDING_MODEL_NAME")
     embedding_dim: int = 1024
+    vision_model_name: str = Field(default="qwen-vl-plus", alias="VISION_MODEL_NAME")
 
     # LLM 稳定性
     llm_timeout_seconds: int = Field(default=30, alias="LLM_TIMEOUT_SECONDS")
@@ -35,6 +36,11 @@ class Settings(BaseSettings):
     # 实体抽取配置
     enable_entity_extraction: bool = Field(default=False, alias="ENABLE_ENTITY_EXTRACTION")
     entity_extraction_max_chunks: int = Field(default=20, alias="ENTITY_EXTRACTION_MAX_CHUNKS")
+
+    # 多模态配置
+    enable_modal_extraction: bool = Field(default=True, alias="ENABLE_MODAL_EXTRACTION")
+    modal_max_images: int = Field(default=20, alias="MODAL_MAX_IMAGES")
+    modal_max_tables: int = Field(default=20, alias="MODAL_MAX_TABLES")
 
     # 存储路径
     data_dir: Path = Field(default=ROOT_DIR / "data", alias="DATA_DIR")

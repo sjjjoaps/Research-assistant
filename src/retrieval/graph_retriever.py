@@ -33,7 +33,7 @@ class GraphRetriever:
     """
 
     def __init__(self, top_k: int = 5, expand_entities: bool = True) -> None:
-        self.top_k = top_k
+        self.top_k = int(top_k)
         self.expand_entities = expand_entities
         self._driver = GraphDatabase.driver(
             settings.neo4j_uri,

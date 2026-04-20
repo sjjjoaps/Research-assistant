@@ -35,9 +35,61 @@ _idea_sys, _idea_human = load_prompt_pair("idea_agent")
 
 
 def _parse_idea_report(content: str) -> IdeaReport:
-    """Parse JSON (possibly wrapped in markdown fences) into IdeaReport."""
-    data = extract_json(content)
-    return IdeaReport(**data)
+    """Parse JSON from LLM output into IdeaReport, with graceful fallback."""
+    # Step 1: extract JSON structure
+    try:
+        data = extract_json(content)
+    except ValueError:
+        # LLM returned prose or truncated JSON — wrap raw content as best-effort report
+        return IdeaReport(
+            research_gaps=[],
+            method_comparisons=[],
+            suggested_directions=[],
+            evidence_basis=content[:1000] if content.strip() else "（模型未返回结构化内容）",
+            confidence_note="JSON 解析失败，以上为模型原始输出，请重试。",
+        )
+
+    # Step 2: ensure we have a dict
+    if isinstance(data, list):
+        # LLM returned a list — treat as suggested_directions
+        return IdeaReport(
+            research_gaps=[],
+            method_comparisons=[],
+            suggested_directions=[str(item) for item in data],
+            evidence_basis="（模型返回了列表格式，字段映射不完整）",
+            confidence_note="输出格式异常，建议重试。",
+        )
+    if not isinstance(data, dict):
+        return IdeaReport(
+            research_gaps=[],
+            method_comparisons=[],
+            suggested_directions=[],
+            evidence_basis="（模型返回了非预期格式）",
+            confidence_note="输出格式异常，建议重试。",
+        )
+
+    # Step 3: fill missing fields with safe defaults before Pydantic validation
+    data.setdefault("research_gaps", [])
+    data.setdefault("method_comparisons", [])
+    data.setdefault("suggested_directions", [])
+    data.setdefault("evidence_basis", "（未提供）")
+    data.setdefault("confidence_note", "（未提供）")
+
+    # Coerce list fields: if LLM returned a string, wrap it
+    for list_field in ("research_gaps", "method_comparisons", "suggested_directions"):
+        if isinstance(data[list_field], str):
+            data[list_field] = [data[list_field]] if data[list_field].strip() else []
+
+    try:
+        return IdeaReport(**data)
+    except Exception as exc:
+        return IdeaReport(
+            research_gaps=[],
+            method_comparisons=[],
+            suggested_directions=[],
+            evidence_basis=str(data),
+            confidence_note=f"字段校验失败（{exc}），以上为原始解析内容。",
+        )
 
 
 class IdeaAgent:

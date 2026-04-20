@@ -22,7 +22,7 @@ class RetrievedChunk:
 
 class SemanticRetriever:
     def __init__(self, top_k: int = 3) -> None:
-        self.top_k = top_k
+        self.top_k = int(top_k)
         self.vector_store = VectorStore()
         self.vector_store.load()
 

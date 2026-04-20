@@ -79,6 +79,7 @@ class ImageProcessor(BaseModalProcessor):
     """图片处理器：调用视觉模型生成图片描述。
 
     LLM 采用懒初始化：首次调用 process() 时才创建，初始化失败时降级返回空描述。
+    使用 VISION_MODEL_NAME 配置的视觉模型（如 qwen-vl-plus）。
     """
 
     _SYSTEM_PROMPT = _image_sys
@@ -89,8 +90,8 @@ class ImageProcessor(BaseModalProcessor):
 
     def _get_llm(self):
         if self._llm is None:
-            from src.infrastructure.llm_client import get_native_llm
-            self._llm = get_native_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_vision_llm
+            self._llm = get_vision_llm(temperature=0.0)
         return self._llm
 
     def process(self, raw_content: str, page_number: int, position_hint: str, caption: str = "") -> str:

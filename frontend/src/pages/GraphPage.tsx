@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, RefreshCw, X, Network, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
-import { getSubgraph, getGraphStats } from '../api/client'
+import { Search, RefreshCw, X, Network, ZoomIn, ZoomOut, Maximize2, Layers } from 'lucide-react'
+import { getSubgraph, getGraphStats, detectCommunities } from '../api/client'
 import type { GraphStats, GraphNode, GraphEdge } from '../types'
 
 // ── Palette ───────────────────────────────────────────────────────────────────
@@ -420,6 +420,8 @@ export default function GraphPage() {
   const [loading, setLoading]           = useState(false)
   const [detail, setDetail]             = useState<DetailItem | null>(null)
   const [nodeCount, setNodeCount]       = useState(0)
+  const [communityRunning, setCommunityRunning] = useState(false)
+  const [communityResult, setCommunityResult]   = useState<{ detected: number; written: number } | null>(null)
 
   const graph = useForceGraph(canvasRef, wrapperRef)
 
@@ -470,6 +472,22 @@ export default function GraphPage() {
 
   const handleSearch = () => loadGraph(selectedTypes, search)
   const toggleType   = (type: string) => setSelectedTypes(prev => prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type])
+
+  // Adaptive min_community_size: based on Entity count, not total node count
+  const entityCount = stats?.node_labels.find(l => l.label === 'Entity')?.count ?? 0
+  const adaptiveMinSize = entityCount > 0 ? Math.max(2, Math.round(entityCount / 20)) : 2
+
+  const handleDetectCommunities = useCallback(async () => {
+    setCommunityRunning(true)
+    setCommunityResult(null)
+    try {
+      const result = await detectCommunities(adaptiveMinSize)
+      setCommunityResult({ detected: result.detected_communities, written: result.written_communities })
+      // Reload graph to show new Community nodes
+      await loadGraph(selectedTypes, search)
+    } catch (e) { console.error(e) }
+    setCommunityRunning(false)
+  }, [adaptiveMinSize, loadGraph, selectedTypes, search])
 
   return (
     <div style={{ display: 'flex', height: '100%', position: 'relative' }}>
@@ -527,6 +545,27 @@ export default function GraphPage() {
             <RefreshCw size={13} style={{ animation: loading ? 'spin 0.8s linear infinite' : 'none' }} />
             {loading ? '加载中...' : '刷新图谱'}
           </button>
+        </div>
+
+        <div style={{ padding: '12px 14px', borderTop: '1px solid var(--border)' }}>
+          <div className="section-label" style={{ marginBottom: 6 }}>社区检测</div>
+          <p style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 8, lineHeight: 1.5 }}>
+            自适应阈值：≥ {adaptiveMinSize} 个实体
+          </p>
+          <button
+            onClick={handleDetectCommunities}
+            disabled={communityRunning || loading}
+            className="btn"
+            style={{ width: '100%', fontSize: 13, background: 'var(--surface2)', border: '1px solid var(--border-light)', color: 'var(--text-muted)' }}
+          >
+            <Layers size={13} style={{ animation: communityRunning ? 'spin 0.8s linear infinite' : 'none' }} />
+            {communityRunning ? '检测中...' : '运行社区检测'}
+          </button>
+          {communityResult && (
+            <p style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 6, textAlign: 'center' }}>
+              检测 {communityResult.detected} 个，写入 {communityResult.written} 个
+            </p>
+          )}
         </div>
       </div>
 

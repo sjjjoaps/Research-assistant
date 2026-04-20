@@ -30,6 +30,41 @@ from src.infrastructure.json_utils import extract_json
 from src.storage.relation_vector_store import RelationVectorRecord
 
 
+def _normalize_extraction_json(raw) -> dict:
+    """
+    兼容 LLM 输出旧字段名或直接返回 list 的情况：
+      - 若 raw 是 list，视为 entities 列表，relations 为空
+      - entity: "type" → "entity_type"
+      - relation: "source"/"relation"/"target" → "source_name"/"relation_type"/"target_name"
+    """
+    if isinstance(raw, list):
+        raw = {"entities": raw, "relations": []}
+    if not isinstance(raw, dict):
+        return {"entities": [], "relations": []}
+
+    entities = []
+    for e in raw.get("entities", []):
+        if not isinstance(e, dict):
+            continue
+        if "entity_type" not in e and "type" in e:
+            e = {**e, "entity_type": e.pop("type")}
+        entities.append(e)
+
+    relations = []
+    for r in raw.get("relations", []):
+        if not isinstance(r, dict):
+            continue
+        if "source_name" not in r and "source" in r:
+            r = {**r, "source_name": r.pop("source")}
+        if "target_name" not in r and "target" in r:
+            r = {**r, "target_name": r.pop("target")}
+        if "relation_type" not in r and "relation" in r:
+            r = {**r, "relation_type": r.pop("relation")}
+        relations.append(r)
+
+    return {"entities": entities, "relations": relations}
+
+
 class EntityItem(BaseModel):
     name: str = Field(description="实体名称")
     entity_type: str = Field(description="实体类型，如 Method/Model/Dataset/Task/Concept/Metric")
@@ -111,7 +146,7 @@ class EntityExtractor:
                 {"role": "user",   "content": _human.format(text=chunk.content)},
             ])
             content = str(resp.get("content") or "").strip()
-            result = ExtractionResult(**extract_json(content))
+            result = ExtractionResult(**_normalize_extraction_json(extract_json(content)))
             stats.processed_chunks += 1
 
             name_to_entity_id: dict[str, str] = {}

@@ -422,7 +422,7 @@ class GraphStore:
         """
         query = """
         MATCH (s:Entity)-[:RELATES_TO]-(t:Entity)
-        WHERE id(s) < id(t)
+        WHERE elementId(s) < elementId(t)
         RETURN s.id AS source_id, t.id AS target_id,
                s.name AS source_name, t.name AS target_name,
                s.description AS source_desc, t.description AS target_desc
@@ -470,7 +470,7 @@ class GraphStore:
         LIMIT $limit
         """
         with self.driver.session() as session:
-            result = session.run(query, limit=limit)
+            result = session.run(query, limit=int(limit))
             return [dict(record) for record in result]
 
     # ------------------------------------------------------------------
@@ -769,7 +769,7 @@ class GraphStore:
         LIMIT $k
         """
         with self.driver.session() as session:
-            result = session.run(query, keywords=list(keywords[:8]), k=k)
+            result = session.run(query, keywords=list(keywords[:8]), k=int(k))
             return [dict(record) for record in result]
 
     def get_one_hop_neighbors(self, entity_ids: set[str]) -> list[dict]:

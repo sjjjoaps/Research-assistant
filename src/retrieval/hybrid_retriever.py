@@ -45,7 +45,7 @@ class HybridRetriever:
         semantic_top_k: int = 10,
         bm25_top_k: int = 10,
     ) -> None:
-        self.top_k = top_k
+        self.top_k = int(top_k)
         self.semantic_retriever = SemanticRetriever(top_k=semantic_top_k)
         self.bm25_retriever = BM25Retriever(top_k=bm25_top_k)
 
