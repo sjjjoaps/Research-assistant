@@ -19,7 +19,7 @@ from __future__ import annotations
 from src.retrieval.fusion import fuse_ranked_lists
 from src.retrieval.lightrag_retriever import LightRAGDualRetriever
 from src.retrieval.local_retriever import LocalRetriever
-from src.retrieval.reranker import get_reranker
+from src.retrieval.reranker import get_reranker, rerank_or_truncate
 from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
 
 _FILTER_EXPAND = 3   # section_filter 时扩大候选池的倍数
@@ -59,18 +59,26 @@ class MixRetriever:
             except Exception:
                 lightrag_results = []
 
+        if get_reranker():
+            # reranker 可用：合并三路候选去重后直接精排，跳过 RRF
+            seen: set[tuple] = set()
+            candidates: list[RetrievedChunk] = []
+            for c in semantic_results + local_results + lightrag_results:
+                key = (c.file_path, c.chunk_index, getattr(c, "entity_id", ""))
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append(c)
+            if section_filter:
+                candidates = [c for c in candidates if getattr(c, "section_type", "") == section_filter]
+            return rerank_or_truncate(query, candidates, self.top_k)
+
         fuse_k = self.top_k * _FILTER_EXPAND if section_filter else self.top_k
         fused = fuse_ranked_lists(
             [semantic_results, local_results, lightrag_results],
             top_k=fuse_k,
         )
-
         if section_filter:
             fused = [c for c in fused if getattr(c, "section_type", "") == section_filter]
-
-        reranker = get_reranker()
-        if reranker:
-            return reranker.rerank(query, fused)[: self.top_k]
         return fused[: self.top_k]
 
     def close(self) -> None:

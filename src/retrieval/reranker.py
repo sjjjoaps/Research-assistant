@@ -141,3 +141,19 @@ def get_reranker() -> APIReranker | None:
         timeout=settings.reranker_timeout,
         max_candidates=settings.reranker_max_candidates,
     )
+
+
+def rerank_or_truncate(
+    query: str,
+    chunks: list[RetrievedChunk],
+    top_k: int,
+) -> list[RetrievedChunk]:
+    """
+    Reranker 可用时精排，否则直接截断。
+
+    所有检索器的最终输出均应通过此函数，确保 Reranker 统一生效。
+    """
+    reranker = get_reranker()
+    if reranker and chunks:
+        return reranker.rerank(query, chunks)[:top_k]
+    return chunks[:top_k]

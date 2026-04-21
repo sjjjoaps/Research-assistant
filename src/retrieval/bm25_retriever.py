@@ -59,4 +59,6 @@ class BM25Retriever:
             if score <= 0:
                 continue
             results.append(self._chunks[index])
-        return results
+
+        from src.retrieval.reranker import rerank_or_truncate
+        return rerank_or_truncate(query, results, self.top_k)

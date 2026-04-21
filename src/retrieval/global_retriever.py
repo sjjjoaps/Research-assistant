@@ -19,6 +19,7 @@ from __future__ import annotations
 from src.retrieval.graph_retriever import GraphRetriever
 from src.retrieval.fusion import fuse_ranked_lists
 from src.retrieval.keyword_extractor import KeywordExtractor
+from src.retrieval.reranker import get_reranker, rerank_or_truncate
 from src.retrieval.retriever import RetrievedChunk
 from src.storage.relation_vector_store import RelationVectorStore
 
@@ -81,24 +82,25 @@ class GlobalRetriever:
         return chunks
 
     def retrieve(self, query: str, section_filter: str = "") -> list[RetrievedChunk]:
-        """
-        Args:
-            query:          用户查询字符串。
-            section_filter: 章节类型过滤（安全兜底）。
-                            GlobalRetriever 结果的 section_type 固定为 "relation"/"entity"，
-                            与文本章节类型不一致，过滤后通常为空。
-                            有 section_filter 时先扩大融合池再过滤，保证候选充分。
-        """
         relation_results = self._relation_docs_to_chunks(query)
         graph_results = self.graph_retriever.retrieve(query)
 
-        # section_filter 时扩大融合候选池，保证后过滤有足够候选再裁至 top_k
+        if get_reranker():
+            seen: set[tuple] = set()
+            candidates: list[RetrievedChunk] = []
+            for c in relation_results + graph_results:
+                key = (c.file_path, c.chunk_index, getattr(c, "entity_id", ""))
+                if key not in seen:
+                    seen.add(key)
+                    candidates.append(c)
+            if section_filter:
+                candidates = [c for c in candidates if getattr(c, "section_type", "") == section_filter]
+            return rerank_or_truncate(query, candidates, self.top_k)
+
         fuse_k = self.top_k * 3 if section_filter else self.top_k
         fused = fuse_ranked_lists([relation_results, graph_results], top_k=fuse_k)
-
         if section_filter:
             fused = [c for c in fused if getattr(c, "section_type", "") == section_filter]
-
         return fused[: self.top_k]
 
     def close(self) -> None:

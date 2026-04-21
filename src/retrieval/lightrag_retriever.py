@@ -136,16 +136,14 @@ class LightRAGDualRetriever:
 
         chunks = self._merge_and_deduplicate(
             low_chunks, high_chunks, expanded_chunks,
-            # section_filter 时扩大 merge 候选池，过滤后再裁至 k
             k * 3 if section_filter else k,
         )
 
-        # LightRAG 结果（entity/relation chunk）的 section_type 与文本章节类型不完全对应，
-        # 此处为兼容性兜底过滤；有 section_filter 时结果大概率为空（详见文档说明）。
         if section_filter:
             chunks = [c for c in chunks if getattr(c, "section_type", "") == section_filter]
 
-        return chunks[:k]
+        from src.retrieval.reranker import rerank_or_truncate
+        return rerank_or_truncate(query, chunks, k)
 
     # ── 辅助方法 ─────────────────────────────────────────────────────────────
 

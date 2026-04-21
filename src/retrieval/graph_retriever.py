@@ -167,4 +167,5 @@ class GraphRetriever:
                 )
             )
 
-        return results
+        from src.retrieval.reranker import rerank_or_truncate
+        return rerank_or_truncate(query, results, self.top_k)
