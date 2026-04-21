@@ -28,13 +28,13 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from langchain_core.messages import HumanMessage
+
+from src.agents.prompt_loader import load_prompt_pair
 
 logger = logging.getLogger(__name__)
 
-
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+_image_sys, _image_human = load_prompt_pair("modal_image")
+_table_sys, _table_human = load_prompt_pair("modal_table")
 
 
 @dataclass
@@ -79,18 +79,19 @@ class ImageProcessor(BaseModalProcessor):
     """图片处理器：调用视觉模型生成图片描述。
 
     LLM 采用懒初始化：首次调用 process() 时才创建，初始化失败时降级返回空描述。
+    使用 VISION_MODEL_NAME 配置的视觉模型（如 qwen-vl-plus）。
     """
 
-    _SYSTEM_PROMPT = _load_prompt("modal_image_system.md")
-    _HUMAN_PROMPT = _load_prompt("modal_image_human.md")
+    _SYSTEM_PROMPT = _image_sys
+    _HUMAN_PROMPT = _image_human
 
     def __init__(self) -> None:
         self._llm = None  # 懒初始化，首次 process() 时创建
 
     def _get_llm(self):
         if self._llm is None:
-            from src.llm_client import get_llm
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_vision_llm
+            self._llm = get_vision_llm(temperature=0.0)
         return self._llm
 
     def process(self, raw_content: str, page_number: int, position_hint: str, caption: str = "") -> str:
@@ -107,12 +108,12 @@ class ImageProcessor(BaseModalProcessor):
                 position_hint=position_hint,
                 page_number=page_number + 1,
             )
-            message = HumanMessage(content=[
+            messages = [{"role": "user", "content": [
                 {"type": "text", "text": f"{self._SYSTEM_PROMPT}\n\n{prompt}"},
                 {"type": "image_url", "image_url": {"url": raw_content}},
-            ])
-            response = llm.invoke([message])
-            return response.content.strip()
+            ]}]
+            resp = llm.invoke(messages)
+            return str(resp.get("content") or "").strip()
         except Exception as e:
             logger.debug("图片描述生成失败（%s）: %s", position_hint, e)
             return ""
@@ -124,16 +125,16 @@ class TableProcessor(BaseModalProcessor):
     LLM 采用懒初始化：首次调用 process() 时才创建，初始化失败时降级返回空描述。
     """
 
-    _SYSTEM_PROMPT = _load_prompt("modal_table_system.md")
-    _HUMAN_PROMPT = _load_prompt("modal_table_human.md")
+    _SYSTEM_PROMPT = _table_sys
+    _HUMAN_PROMPT = _table_human
 
     def __init__(self) -> None:
         self._llm = None  # 懒初始化，首次 process() 时创建
 
     def _get_llm(self):
         if self._llm is None:
-            from src.llm_client import get_llm
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_native_llm
+            self._llm = get_native_llm(temperature=0.0)
         return self._llm
 
     def process(self, raw_content: str, page_number: int, position_hint: str, caption: str = "") -> str:
@@ -145,7 +146,7 @@ class TableProcessor(BaseModalProcessor):
         try:
             llm = self._get_llm()
             caption_hint = f"表格标题：{caption}\n" if caption else ""
-            prompt = (
+            content = (
                 f"{self._SYSTEM_PROMPT}\n\n"
                 + self._HUMAN_PROMPT.format(
                     caption_hint=caption_hint,
@@ -154,8 +155,8 @@ class TableProcessor(BaseModalProcessor):
                     raw_content=raw_content,
                 )
             )
-            response = llm.invoke(prompt)
-            return response.content.strip()
+            resp = llm.invoke([{"role": "user", "content": content}])
+            return str(resp.get("content") or "").strip()
         except Exception as e:
             logger.debug("表格描述生成失败（%s）: %s", position_hint, e)
             return ""

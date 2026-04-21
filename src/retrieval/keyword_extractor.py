@@ -12,7 +12,6 @@ Phase 4.1 实现策略：
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -140,6 +139,9 @@ _HL_ONLY_WORDS = {
     "directions",
 }
 
+from src.agents.prompt_loader import load_system_prompt
+from src.infrastructure.json_utils import extract_json
+
 _PHRASE_RE = re.compile(
     r"[A-Z][A-Za-z0-9.+\-]*(?:\s+[A-Z]?[A-Za-z0-9.+\-]+){0,5}"
     r"|[A-Za-z][A-Za-z0-9.+\-]{1,31}"
@@ -153,8 +155,7 @@ _HL_PHRASE_RE = re.compile(
     r"[\u4e00-\u9fffA-Za-z0-9.+\-]{0,10}(?:研究趋势|发展趋势|应用挑战|研究方向|研究现状|技术进展|主要挑战)"
 )
 
-with open("prompt/keyword_extractor_fallback.md", "r", encoding="utf-8") as f:
-    _LLM_PROMPT = f.read()
+_LLM_PROMPT = load_system_prompt("keyword_extractor_fallback")
 
 
 @dataclass
@@ -174,9 +175,8 @@ class KeywordExtractor:
 
     def _get_llm(self):
         if self._llm is None:
-            from src.llm_client import get_llm
-
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_native_llm
+            self._llm = get_native_llm(temperature=0.0)
         return self._llm
 
     def extract(self, query: str) -> KeywordResult:
@@ -286,12 +286,11 @@ class KeywordExtractor:
         try:
             llm = self._get_llm()
             prompt = _LLM_PROMPT.format(query=query[:_MAX_QUERY_LENGTH])
-            response = llm.invoke(prompt)
-            content = str(response.content).strip()
-            if "```" in content:
-                content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()
-
-            data = json.loads(content)
+            response = llm.invoke([{"role": "user", "content": prompt}])
+            content = str(response.get("content") or "").strip()
+            data = extract_json(content)
+            if not isinstance(data, dict):
+                raise ValueError(f"期望 dict，得到 {type(data).__name__}")
             ll = self._trim_keywords([str(k) for k in data.get("ll_keywords", []) if k])
             hl = self._trim_keywords([str(k) for k in data.get("hl_keywords", []) if k])
             return KeywordResult(ll_keywords=ll, hl_keywords=hl, raw_query=query)

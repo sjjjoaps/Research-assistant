@@ -15,17 +15,19 @@ Phase 4.1 变更：
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from typing import Literal
 
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from src.agents.base_agent import BaseAgent
-from src.llm_client import get_llm
-from src.retriever import RetrievedChunk
+from src.agents.prompt_loader import load_prompt_pair
+from src.infrastructure.llm_client import get_native_llm
+from src.infrastructure.json_utils import extract_json
+from src.retrieval.retriever import RetrievedChunk
 from src.retrieval.keyword_extractor import KeywordExtractor
-from src.token_tracker import TokenUsage
+from src.infrastructure.token_tracker import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -72,30 +74,12 @@ class SubQuestionList(BaseModel):
 # Prompts
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
+_plan_sys, _plan_human = load_prompt_pair("deep_research_plan")
+_plan_human = _plan_human or "研究问题：{question}"
 
+_analyze_sys, _analyze_human = load_prompt_pair("deep_research_analyze")
 
-_PLAN_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("deep_research_plan_system.md")),
-        ("human", "研究问题：{question}"),
-    ]
-)
-
-_ANALYZE_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("deep_research_analyze_system.md")),
-        ("human", _load_prompt("deep_research_analyze_human.md")),
-    ]
-)
-
-_REPORT_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("deep_research_report_system.md")),
-        ("human", _load_prompt("deep_research_report_human.md")),
-    ]
-)
+_report_sys, _report_human = load_prompt_pair("deep_research_report")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -105,10 +89,10 @@ _REPORT_PROMPT = ChatPromptTemplate.from_messages(
 def _make_retriever(mode: RetrieverMode, top_k: int):
     """检索器工厂（与 QAAgent 保持一致）"""
     if mode == "hybrid":
-        from src.hybrid_retriever import HybridRetriever
+        from src.retrieval.hybrid_retriever import HybridRetriever
         return HybridRetriever(top_k=top_k, semantic_top_k=top_k * 2, bm25_top_k=top_k * 2)
     if mode == "graph":
-        from src.graph_retriever import GraphRetriever
+        from src.retrieval.graph_retriever import GraphRetriever
         return GraphRetriever(top_k=top_k, expand_entities=True)
     if mode == "local":
         from src.retrieval.local_retriever import LocalRetriever
@@ -119,7 +103,7 @@ def _make_retriever(mode: RetrieverMode, top_k: int):
     if mode == "mix":
         from src.retrieval.mix_retriever import MixRetriever
         return MixRetriever(top_k=top_k)
-    from src.retriever import SemanticRetriever
+    from src.retrieval.retriever import SemanticRetriever
     return SemanticRetriever(top_k=top_k)
 
 
@@ -168,25 +152,52 @@ class DeepResearchAgent(BaseAgent):
     ) -> None:
         super().__init__(max_history_turns=5)
         self.top_k = top_k
-        self.max_subquestions = max_subquestions
+        self.max_subquestions = int(max_subquestions)
         self.retriever_mode = retriever_mode
         self.use_community = use_community
         self.retriever = _make_retriever(retriever_mode, top_k)
-        self.llm = get_llm(temperature=0.2)
-        # structured output 链（规划器）
-        self._plan_chain = _PLAN_PROMPT | self.llm.with_structured_output(SubQuestionList)
-        # 普通文本链
-        self._analyze_chain = _ANALYZE_PROMPT | self.llm
-        self._report_chain = _REPORT_PROMPT | self.llm
+        self._llm = get_native_llm(temperature=0.2)
         self._keyword_extractor = KeywordExtractor()
 
     # ── Step 1：规划 ──────────────────────────────────────────────────────────
 
     def _plan(self, question: str) -> list[str]:
-        result = self._plan_chain.invoke(
-            {"question": question, "max_n": self.max_subquestions}
-        )
-        return result.sub_questions[: self.max_subquestions]
+        resp = self._llm.invoke([
+            {"role": "system", "content": _plan_sys},
+            {"role": "user",   "content": _plan_human.format(
+                question=question, max_n=self.max_subquestions
+            )},
+        ])
+        content = str(resp.get("content") or "").strip()
+
+        # 优先尝试 JSON 格式（{"sub_questions": [...]}）
+        try:
+            data = extract_json(content)
+            if isinstance(data, list):
+                questions = [str(q) for q in data if q]
+                return questions[: self.max_subquestions]
+            if isinstance(data, dict):
+                data.setdefault("sub_questions", [])
+                result = SubQuestionList(**data)
+                return result.sub_questions[: self.max_subquestions]
+        except (ValueError, Exception):
+            pass
+
+        # 降级：解析纯文本编号列表（"1. xxx\n2. xxx" 或 "- xxx"）
+        questions: list[str] = []
+        for line in content.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # 去掉 "1." / "1)" / "-" / "*" 等前缀
+            cleaned = re.sub(r"^[\d]+[.)、]\s*|^[-*•]\s*", "", line).strip()
+            if cleaned:
+                questions.append(cleaned)
+
+        if questions:
+            return questions[: self.max_subquestions]
+
+        raise ValueError(f"无法从规划响应中提取子问题: {content[:200]!r}")
 
     # ── Step 2+3：检索 + 局部分析 ─────────────────────────────────────────────
 
@@ -208,15 +219,18 @@ class DeepResearchAgent(BaseAgent):
                 token_usage=None,
             )
 
-        message = self._analyze_chain.invoke(
-            {"sub_question": sub_question, "context": context}
-        )
-        token_usage = TokenUsage.from_langchain_message(message, self.llm.model_name)
+        resp = self._llm.invoke([
+            {"role": "system", "content": _analyze_sys},
+            {"role": "user",   "content": _analyze_human.format(
+                sub_question=sub_question, context=context
+            )},
+        ])
+        token_usage = TokenUsage.from_native_response(resp, self._llm.model_name)
         return SubQuestionResult(
             question=sub_question,
             chunks=chunks,
             sources=sources,
-            analysis=str(message.content),
+            analysis=str(resp.get("content") or "").strip(),
             token_usage=token_usage,
         )
 
@@ -226,7 +240,7 @@ class DeepResearchAgent(BaseAgent):
         if not self.use_community:
             return ""
         try:
-            from src.graph_store import GraphStore
+            from src.storage.graph_store import GraphStore
             graph_store = GraphStore()
             summaries = graph_store.get_community_summaries(limit=5)
             graph_store.close()
@@ -254,15 +268,16 @@ class DeepResearchAgent(BaseAgent):
 
         community_prompt = f"社区视角补充：\n{community_section}\n" if community_section else ""
 
-        message = self._report_chain.invoke(
-            {
-                "question": question,
-                "sub_analyses": sub_analyses_text,
-                "community_section": community_prompt,
-            }
-        )
-        token_usage = TokenUsage.from_langchain_message(message, self.llm.model_name)
-        return str(message.content), token_usage
+        resp = self._llm.invoke([
+            {"role": "system", "content": _report_sys},
+            {"role": "user",   "content": _report_human.format(
+                question=question,
+                sub_analyses=sub_analyses_text,
+                community_section=community_prompt,
+            )},
+        ])
+        token_usage = TokenUsage.from_native_response(resp, self._llm.model_name)
+        return str(resp.get("content") or "").strip(), token_usage
 
     # ── 主入口 ────────────────────────────────────────────────────────────────
 

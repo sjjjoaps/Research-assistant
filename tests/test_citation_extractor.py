@@ -162,7 +162,7 @@ class TestParseReferenceLLM:
     def _extractor_with_mock_llm(self, response_content: str) -> CitationExtractor:
         e = CitationExtractor.__new__(CitationExtractor)
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content=response_content)
+        mock_llm.invoke.return_value = {"content": response_content}
         e._llm = mock_llm
         return e
 
@@ -243,7 +243,7 @@ class TestCitationExtractorExtract:
 
     def test_lazy_init_no_llm_on_instantiation(self):
         """实例化 CitationExtractor 不应触发 LLM 初始化。"""
-        with patch("src.llm_client.get_llm") as mock_get_llm:
+        with patch("src.infrastructure.llm_client.get_llm") as mock_get_llm:
             e = CitationExtractor()
             mock_get_llm.assert_not_called()
             assert e._llm is None
@@ -253,7 +253,7 @@ class TestCitationExtractorExtract:
 
 class TestGraphStoreCitations:
     def _make_graph_store(self):
-        from src.graph_store import GraphStore
+        from src.storage.graph_store import GraphStore
         gs = GraphStore.__new__(GraphStore)
         mock_session = MagicMock()
         mock_driver = MagicMock()
@@ -303,14 +303,14 @@ class TestGraphStoreCitations:
 
 class TestIngestionPipelineCitations:
     def test_citation_extractor_none_when_disabled(self):
-        from src.ingestion_pipeline import IngestionPipeline
+        from src.workflows.ingestion_pipeline import IngestionPipeline
         pipeline = IngestionPipeline.__new__(IngestionPipeline)
         pipeline._enable_citation_extraction = False
         pipeline._citation_extractor = None
         assert pipeline._citation_extractor is None
 
     def test_citation_extractor_created_when_enabled(self):
-        from src.ingestion_pipeline import IngestionPipeline
+        from src.workflows.ingestion_pipeline import IngestionPipeline
         pipeline = IngestionPipeline.__new__(IngestionPipeline)
         pipeline._enable_citation_extraction = True
         pipeline._citation_extractor = CitationExtractor()

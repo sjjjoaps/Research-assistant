@@ -20,7 +20,7 @@ from src.storage.document_status_store import DocumentStatus, DocumentStatusStor
 
 def _build_pipeline(tmp_path: Path):
     """构造带真实 status_store / chunk_tracker 的 pipeline，其余 mock。"""
-    from src.ingestion_pipeline import IngestionPipeline
+    from src.workflows.ingestion_pipeline import IngestionPipeline
 
     pipeline = IngestionPipeline.__new__(IngestionPipeline)
     pipeline._enable_entity_extraction = False

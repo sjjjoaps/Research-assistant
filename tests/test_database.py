@@ -10,8 +10,8 @@ from pathlib import Path
 # 把项目根目录加入 Python 路径
 sys.path.append(str(Path(__file__).parent.parent))
 
-from src.database import MetadataDatabase
-from src.metadata_extractor import DocumentMetadata
+from src.storage.database import MetadataDatabase
+from src.ingestion.metadata_extractor import DocumentMetadata
 
 
 def main() -> None:

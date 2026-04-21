@@ -12,10 +12,10 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import argparse
 
-from src.chunker import DocumentChunker
-from src.document_parser import DocumentParser
-from src.graph_store import GraphStore
-from src.metadata_extractor import MetadataExtractor
+from src.ingestion.chunker import DocumentChunker
+from src.ingestion.document_parser import DocumentParser
+from src.storage.graph_store import GraphStore
+from src.ingestion.metadata_extractor import MetadataExtractor
 
 
 def main() -> None:

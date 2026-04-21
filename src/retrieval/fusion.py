@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from src.retriever import RetrievedChunk
+from src.retrieval.retriever import RetrievedChunk
 
 
 _RRF_K = 60

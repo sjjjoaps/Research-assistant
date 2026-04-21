@@ -67,11 +67,9 @@ class TestDescriptionMergerLLMSummarize(unittest.TestCase):
         descs = ["这是一段较长的描述内容A", "这是一段较长的描述内容B"]
 
         mock_llm = MagicMock()
-        mock_response = MagicMock()
-        mock_response.content = "合并后的摘要"
-        mock_llm.invoke.return_value = mock_response
+        mock_llm.invoke.return_value = {"content": "合并后的摘要"}
 
-        with patch("src.ingestion.description_merger.get_llm", return_value=mock_llm):
+        with patch("src.ingestion.description_merger.get_native_llm", return_value=mock_llm):
             result = merger.merge(descs)
 
         self.assertEqual(result, "合并后的摘要")
@@ -84,7 +82,7 @@ class TestDescriptionMergerLLMSummarize(unittest.TestCase):
         mock_llm = MagicMock()
         mock_llm.invoke.side_effect = ConnectionError("网络超时")
 
-        with patch("src.ingestion.description_merger.get_llm", return_value=mock_llm):
+        with patch("src.ingestion.description_merger.get_native_llm", return_value=mock_llm):
             result = merger.merge(descs)
 
         # 回退到直接拼接
@@ -111,8 +109,8 @@ class TestGraphStoreUpsertWithMerge(unittest.TestCase):
 
     def _make_graph_store(self):
         """构造一个 driver 被 mock 的 GraphStore。"""
-        with patch("src.graph_store.GraphDatabase"):
-            from src.graph_store import GraphStore
+        with patch("src.storage.graph_store.GraphDatabase"):
+            from src.storage.graph_store import GraphStore
             gs = GraphStore()
             gs.driver = MagicMock()
             return gs

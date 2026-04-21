@@ -17,36 +17,26 @@ from __future__ import annotations
 
 from typing import Literal
 
-from langchain_core.prompts import ChatPromptTemplate
-
 from src.agents.base_agent import BaseAgent, Turn
-from src.llm_client import get_llm
-from src.retriever import RetrievedChunk, SemanticRetriever
+from src.agents.prompt_loader import load_prompt_pair
+from src.infrastructure.llm_client import get_native_llm
+from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
 from src.retrieval.keyword_extractor import KeywordExtractor
-from src.token_tracker import TokenUsage
+from src.infrastructure.token_tracker import TokenUsage
 
 RetrieverMode = Literal["semantic", "hybrid", "graph", "local", "global", "mix"]
 
 
-def _load_prompt(filename: str) -> str:
-    return open(f"prompt/{filename}", "r", encoding="utf-8").read()
-
-
-_QA_AGENT_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", _load_prompt("qa_agent_system.md")),
-        ("human", _load_prompt("qa_agent_human.md")),
-    ]
-)
+_qa_sys, _qa_human = load_prompt_pair("qa_agent")
 
 
 def _make_retriever(mode: RetrieverMode, top_k: int):
     """工厂函数：按模式创建对应检索器"""
     if mode == "hybrid":
-        from src.hybrid_retriever import HybridRetriever
+        from src.retrieval.hybrid_retriever import HybridRetriever
         return HybridRetriever(top_k=top_k, semantic_top_k=top_k * 2, bm25_top_k=top_k * 2)
     if mode == "graph":
-        from src.graph_retriever import GraphRetriever
+        from src.retrieval.graph_retriever import GraphRetriever
         return GraphRetriever(top_k=top_k, expand_entities=True)
     if mode == "local":
         from src.retrieval.local_retriever import LocalRetriever
@@ -85,8 +75,7 @@ class QAAgent(BaseAgent):
         self.top_k = top_k
         self.retriever_mode = retriever_mode
         self.retriever = _make_retriever(retriever_mode, top_k)
-        self.llm = get_llm(temperature=0.1)
-        self.chain = _QA_AGENT_PROMPT | self.llm
+        self._llm = get_native_llm(temperature=0.1)
         self._keyword_extractor = KeywordExtractor()
 
     @staticmethod
@@ -138,16 +127,15 @@ class QAAgent(BaseAgent):
                 "hl_keywords": kw.hl_keywords,
             }
 
-        message = self.chain.invoke(
-            {
-                "history": history_text,
-                "question": user_input,
-                "context": context,
-            }
-        )
-        token_usage = TokenUsage.from_langchain_message(message, self.llm.model_name)
+        resp = self._llm.invoke([
+            {"role": "system", "content": _qa_sys},
+            {"role": "user",   "content": _qa_human.format(
+                history=history_text, question=user_input, context=context
+            )},
+        ])
+        token_usage = TokenUsage.from_native_response(resp, self._llm.model_name)
 
-        answer = str(message.content)
+        answer = str(resp.get("content") or "").strip()
         self.append_assistant_message(thread_id, answer, sources)
 
         return {

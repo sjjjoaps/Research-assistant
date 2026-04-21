@@ -16,10 +16,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import re
 from dataclasses import dataclass, field
+
+from src.agents.prompt_loader import load_system_prompt
+from src.infrastructure.json_utils import extract_json
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +38,7 @@ _REF_SECTION_RE = re.compile(
     re.IGNORECASE,
 )
 
-with open("prompt/citation_extractor_fallback.md", "r", encoding="utf-8") as f:
-    _LLM_PROMPT = f.read()
+_LLM_PROMPT = load_system_prompt("citation_extractor_fallback")
 
 _MAX_REFERENCES = 100  # 单文档最多处理引用数，防止超大文档消耗过多 LLM 调用
 
@@ -68,8 +69,8 @@ class CitationExtractor:
 
     def _get_llm(self):
         if self._llm is None:
-            from src.llm_client import get_llm
-            self._llm = get_llm(temperature=0.0)
+            from src.infrastructure.llm_client import get_native_llm
+            self._llm = get_native_llm(temperature=0.0)
         return self._llm
 
     def extract(self, raw_text: str) -> list[CitationRecord]:
@@ -144,12 +145,9 @@ class CitationExtractor:
         try:
             llm = self._get_llm()
             prompt = _LLM_PROMPT.format(text=ref_text[:500])
-            response = llm.invoke(prompt)
-            content = response.content.strip()
-            # 提取 JSON（可能被 markdown 代码块包裹）
-            if "```" in content:
-                content = re.sub(r"```(?:json)?\s*", "", content).strip().rstrip("`").strip()
-            data = json.loads(content)
+            resp    = llm.invoke([{"role": "user", "content": prompt}])
+            content = str(resp.get("content") or "").strip()
+            data = extract_json(content)
             return CitationRecord(
                 raw_text=ref_text,
                 title=str(data.get("title", "")),

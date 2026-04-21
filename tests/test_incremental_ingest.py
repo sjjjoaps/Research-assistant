@@ -159,15 +159,15 @@ class TestIncrementalIngestPipeline:
 
     def _make_pipeline(self, tmp_path: Path):
         """构造一个使用临时目录的 IngestionPipeline，mock 掉外部依赖。"""
-        from src.ingestion_pipeline import IngestionPipeline
+        from src.workflows.ingestion_pipeline import IngestionPipeline
 
         with (
-            patch("src.ingestion_pipeline.DocumentParser"),
-            patch("src.ingestion_pipeline.MetadataExtractor"),
-            patch("src.ingestion_pipeline.VectorStore"),
-            patch("src.ingestion_pipeline.GraphStore"),
-            patch("src.ingestion_pipeline.EntityExtractor"),
-            patch("src.config.settings") as mock_settings,
+            patch("src.workflows.ingestion_pipeline.DocumentParser"),
+            patch("src.workflows.ingestion_pipeline.MetadataExtractor"),
+            patch("src.workflows.ingestion_pipeline.VectorStore"),
+            patch("src.workflows.ingestion_pipeline.GraphStore"),
+            patch("src.workflows.ingestion_pipeline.EntityExtractor"),
+            patch("src.workflows.ingestion_pipeline.settings") as mock_settings,
         ):
             mock_settings.data_dir = tmp_path
             mock_settings.faiss_index_dir = tmp_path / "faiss"
@@ -241,9 +241,9 @@ class TestIncrementalIngestPipeline:
         ))
 
         # mock 解析和切块返回值
-        from src.document_parser import ParsedDocument
-        from src.chunker import TextChunk
-        from src.metadata_extractor import DocumentMetadata
+        from src.ingestion.document_parser import ParsedDocument
+        from src.ingestion.chunker import TextChunk
+        from src.ingestion.metadata_extractor import DocumentMetadata
 
         parsed = ParsedDocument(file_path=str(txt), raw_text="version 1 content", pages=[])
         pipeline.document_parser.parse.return_value = parsed
@@ -280,9 +280,9 @@ class TestIncrementalIngestPipeline:
         file_hash = compute_file_hash(txt)
         doc_id = generate_doc_id(file_hash)
 
-        from src.document_parser import ParsedDocument
-        from src.chunker import TextChunk
-        from src.metadata_extractor import DocumentMetadata
+        from src.ingestion.document_parser import ParsedDocument
+        from src.ingestion.chunker import TextChunk
+        from src.ingestion.metadata_extractor import DocumentMetadata
 
         parsed = ParsedDocument(file_path=str(txt), raw_text="brand new document content", pages=[])
         pipeline.document_parser.parse.return_value = parsed

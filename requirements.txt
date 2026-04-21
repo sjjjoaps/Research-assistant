@@ -15,5 +15,6 @@ python_docx==1.2.0
 rank_bm25==0.2.2
 Requests==2.33.1
 SQLAlchemy==2.0.49
+sse-starlette>=1.6.1
 streamlit==1.52.2
 uvicorn==0.44.0

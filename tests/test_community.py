@@ -12,8 +12,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 import argparse
 
-from src.community_detector import CommunityDetector
-from src.graph_store import GraphStore
+from src.ingestion.community_detector import CommunityDetector
+from src.storage.graph_store import GraphStore
 
 
 def main() -> None:
