@@ -151,11 +151,19 @@ export interface GraphStats {
   relationship_types: GraphCountItem[]
 }
 
+export interface TokenUsage {
+  total_tokens: number
+  prompt_tokens: number
+  completion_tokens: number
+  estimated_cost_cny: number
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   tool_calls?: ToolCall[]
   sources?: Source[]
+  usage?: TokenUsage
 }
 
 export interface ToolCall {

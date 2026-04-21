@@ -8,7 +8,7 @@ export function useSSE() {
   const {
     setStreaming, appendDelta, setSources,
     upsertToolCall, clearToolCalls, addMessage,
-    setSessions, setCurrentSession,
+    setSessions, setCurrentSession, setLastUsage,
   } = useChatStore()
 
   const send = useCallback(async (sessionId: string, message: string) => {
@@ -51,6 +51,14 @@ export function useSSE() {
             flushSync(() => upsertToolCall(tc))
             break
           }
+          case 'usage':
+            setLastUsage({
+              total_tokens: event.total_tokens,
+              prompt_tokens: event.prompt_tokens,
+              completion_tokens: event.completion_tokens,
+              estimated_cost_cny: event.estimated_cost_cny,
+            })
+            break
           case 'error':
             appendDelta(`\n\n[错误] ${event.message}`)
             break
@@ -70,7 +78,7 @@ export function useSSE() {
       setStreaming(false)
     }
   }, [addMessage, setStreaming, clearToolCalls, appendDelta, setSources,
-      upsertToolCall, setSessions, setCurrentSession])
+      upsertToolCall, setSessions, setCurrentSession, setLastUsage])
 
   return { send }
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChatMessage, ToolCall, Session } from '../types'
+import type { ChatMessage, ToolCall, Session, TokenUsage } from '../types'
 
 interface ChatState {
   sessions: Session[]
@@ -16,6 +16,7 @@ interface ChatState {
   setMessages: (msgs: ChatMessage[]) => void
   appendDelta: (delta: string) => void
   setSources: (sources: import('../types').Source[]) => void
+  setLastUsage: (usage: TokenUsage) => void
   setStreaming: (v: boolean) => void
   upsertToolCall: (tc: ToolCall) => void
   clearToolCalls: () => void
@@ -61,6 +62,15 @@ export const useChatStore = create<ChatState>((set) => ({
       const last = msgs[msgs.length - 1]
       if (last?.role === 'assistant') {
         msgs[msgs.length - 1] = { ...last, sources }
+      }
+      return { messages: msgs }
+    }),
+  setLastUsage: (usage) =>
+    set((s) => {
+      const msgs = [...s.messages]
+      const last = msgs[msgs.length - 1]
+      if (last?.role === 'assistant') {
+        msgs[msgs.length - 1] = { ...last, usage }
       }
       return { messages: msgs }
     }),

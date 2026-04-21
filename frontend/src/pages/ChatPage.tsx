@@ -339,7 +339,7 @@ export default function ChatPage() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2 }}
-              style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}
             >
               <div
                 className={msg.role === 'user' ? 'msg-user' : 'msg-assistant'}
@@ -395,6 +395,18 @@ export default function ChatPage() {
                   <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
                 )}
               </div>
+              {msg.role === 'assistant' && msg.usage && (
+                <div style={{
+                  display: 'flex', gap: 10, marginTop: 4, paddingLeft: 4,
+                  fontSize: 11, color: 'var(--text-faint)',
+                  fontFamily: 'var(--font-mono)',
+                }}>
+                  <span>↑{msg.usage.prompt_tokens}</span>
+                  <span>↓{msg.usage.completion_tokens}</span>
+                  <span>共{msg.usage.total_tokens} tokens</span>
+                  <span>≈¥{msg.usage.estimated_cost_cny.toFixed(4)}</span>
+                </div>
+              )}
             </motion.div>
           ))}
 

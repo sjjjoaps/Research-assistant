@@ -10,18 +10,19 @@
 ![首页效果](./assets/image.png)
 ![研究效果](./assets/image1.png)
 ![图谱效果](./assets/image2.png)
+
 ![文献管理](./assets/image4.png)
 ---
 
 ## 1. 项目目标
 
 GraphAssistant 主要解决以下问题：
-- 将 PDF / DOCX / TXT 学术文献解析为可检索、可追踪、可管理的数据资产
-- 同时构建向量索引、元数据库和知识图谱，支持语义检索与图增强检索
-- 支持多轮问答、深度研究报告和 Idea 挖掘
+- 将 PDF / DOCX / TXT 学术文献并发解析为可检索、可追踪、可管理的数据资产
+- 同时构建向量索引、元数据库和知识图谱，实现语义检索、图增强检索、关键词检索、混合检索、LigRAG论文中的双极检索
+- 支持多轮问答、会话持久化、深度研究报告和 Idea 挖掘
 - 对文档入库过程提供状态管理、失败定位和实时可视化追踪
-- 在不全量重建的前提下，支持增量入库、关系索引、局部删除和图谱扩展
-- 通过 MasterAgent 统一调度所有能力，以自然语言交互完成全部操作
+- 在不全量重建的前提下，参考LigRAG实现增量入库、关系索引、局部删除和图谱扩展
+- 通过统一的 MasterAgent 统一调度所有能力，实现AgenticRAG。
 
 ---
 
@@ -48,17 +49,6 @@ GraphAssistant 主要解决以下问题：
 - 单文件入库支持"后台启动 + 前端轮询状态"
 - 支持 chunk 追踪、关系来源追踪、错误定位
 
-### 2.3 检索模式
-
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| `semantic` | 纯 FAISS 向量语义检索 | 自然语言语义问答 |
-| `hybrid` | FAISS + BM25 + RRF 融合 | 一般性查询 |
-| `graph` | Neo4j 实体命中 + Chunk 回溯 | 实体关联问题 |
-| `local` | 图检索优先 + 语义补充（LightRAG Local） | 具体方法/模型/数据集问题 |
-| `global` | 关系向量索引 + 图关系优先（LightRAG Global） | 趋势/主题/方向类问题 |
-| `mix` | `semantic + local + global` 三路 RRF 融合 | 复杂综合问题 |
-
 ### 2.4 MasterAgent（统一入口）
 
 - 通过 SSE 流式输出与前端实时交互
@@ -79,7 +69,6 @@ GraphAssistant 主要解决以下问题：
 - 基于 Neo4j 中的 `RELATES_TO` 图构建 NetworkX 无向图
 - 使用 Louvain 算法划分社区
 - 对每个社区调用 LLM 生成摘要，写入 `Community` 节点与 `BELONGS_TO` 关系
-- 自适应 `min_community_size`：根据 Entity 节点数动态计算，避免阈值过高导致无社区写入
 
 ### 2.6 图谱可视化（React 前端）
 
@@ -204,7 +193,7 @@ GraphAssistant 主要解决以下问题：
 ### 4.2 Python 依赖
 
 ```bash
-F:/Anaconda/envs/llm_universe/python.exe -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 主要依赖：
@@ -245,7 +234,7 @@ MODEL_NAME=qwen-flash
 BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 API_KEY=sk-xxxxx
 EMBEDDING_MODEL_NAME=text-embedding-v3
-VISION_MODEL_NAME=qwen-vl-plus      # 多模态图表提取
+VISION_MODEL_NAME=qwen-vl-plus      # 用于多模态图表提取
 
 # 服务
 APP_ENV=development
@@ -300,17 +289,25 @@ TOOL_CALL_WINDOW_SECONDS=60.0
 
 ## 6. 快速开始
 
-### 6.1 启动后端
+### 6.1 启动社区版本Neo4j
 
 ```bash
-F:/Anaconda/envs/llm_universe/python.exe c:/Users/Administrator/Desktop/GraphAssitant/main.py
+neo4j console
+```
+
+
+
+### 6.2 启动后端
+
+```bash
+python main.py
 ```
 
 启动后可访问：
 - Swagger：`http://127.0.0.1:8000/docs`
 - 健康检查：`http://127.0.0.1:8000/health`
 
-### 6.2 启动 React 前端（推荐）
+### 6.3 启动 React 前端（推荐）
 
 ```bash
 cd frontend
@@ -319,15 +316,15 @@ npm run dev
 
 访问：`http://localhost:5173`
 
-### 6.3 启动 Streamlit 前端（备用）
+### 6.4 启动 Streamlit 前端（备用）
 
 ```bash
-F:/Anaconda/envs/llm_universe/python.exe -m streamlit run c:/Users/Administrator/Desktop/GraphAssitant/app.py
+streamlit run app.py
 ```
 
 访问：`http://localhost:8501`
 
-### 6.4 使用顺序
+### 6.5 使用顺序
 
 1. 启动 Neo4j
 2. 启动 FastAPI 后端
@@ -363,17 +360,14 @@ F:/Anaconda/envs/llm_universe/python.exe -m streamlit run c:/Users/Administrator
 
 ```bash
 # 文献入库
-F:/Anaconda/envs/llm_universe/python.exe ingest.py --file "C:/path/to/paper.pdf"
-F:/Anaconda/envs/llm_universe/python.exe ingest.py --dir "C:/path/to/papers/" --enable-entity-extraction
+python ingest.py --file "C:/path/to/paper.pdf"
+python ingest.py --dir "C:/path/to/papers/" --enable-entity-extraction
 
 # 多轮问答
-F:/Anaconda/envs/llm_universe/python.exe chat.py --thread-id t1 --top-k 3 --retriever-mode mix
+python chat.py --thread-id t1 --top-k 3 --retriever-mode mix
 
 # 深度研究
-F:/Anaconda/envs/llm_universe/python.exe research.py --question "AmpAgent解决了什么问题？" --retriever-mode hybrid
-
-# 多模态提取测试
-F:/Anaconda/envs/llm_universe/python.exe demo1.py "C:/path/to/paper.pdf"
+python research.py --question "AmpAgent解决了什么问题？" --retriever-mode hybrid
 ```
 
 ### 7.4 API 端点
@@ -417,17 +411,16 @@ session_start → thinking → [tool_start + tool_end]* → text_delta* → sour
 
 ### 8.2 文档状态与增量入库
 
-- 文档有稳定 `doc_id`（基于文件路径 hash）
+- 文档有稳定 `doc_id`（基于文件内容 hash）
 - 内容不变时跳过处理（hash 比对）
 - 内容变化时先清理旧 chunk/向量/图谱节点，再增量重建
 - 删除文档时精确清理：Chunk → 孤立 Entity → 孤立 RELATES_TO → Document
 
 ### 8.3 多模态提取
 
-默认开启（`ENABLE_MODAL_EXTRACTION=true`），每文档最多提取 20 张图片 + 20 个表格：
+默认开启（`ENABLE_MODAL_EXTRACTION=true`），每文档默认最多提取 20 张图片 + 20 个表格：
 - 图片：调用视觉 LLM 生成图像描述，作为独立 chunk 写入
 - 表格：调用视觉 LLM 生成表格摘要，作为独立 chunk 写入
-- 可通过 `demo1.py` 单独测试多模态提取效果
 
 ### 8.4 社区检测
 
@@ -487,7 +480,7 @@ GraphAssitant/
 │   │   ├── chunk_tracker.py
 │   │   └── extraction_cache.py
 │   ├── retrieval/                  # 检索层（6 种模式）
-│   │   ├── retriever.py            # top_k 统一 int 转换
+│   │   ├── retriever.py            
 │   │   ├── bm25_retriever.py
 │   │   ├── hybrid_retriever.py
 │   │   ├── graph_retriever.py
@@ -595,16 +588,6 @@ GraphAssitant/
 ---
 
 ## 11. 测试
-
-```bash
-# 运行单个测试文件
-F:/Anaconda/envs/llm_universe/python.exe -m pytest tests/test_documents_api.py
-F:/Anaconda/envs/llm_universe/python.exe -m pytest tests/test_graph_api.py
-
-# 多模态提取测试
-F:/Anaconda/envs/llm_universe/python.exe demo1.py "C:/path/to/paper.pdf"
-```
-
 | 测试文件 | 说明 |
 |---------|------|
 | `tests/test_document_status.py` | 文档状态流转 |
@@ -623,6 +606,7 @@ F:/Anaconda/envs/llm_universe/python.exe demo1.py "C:/path/to/paper.pdf"
 ## 12. 常见问题
 
 **React 前端无法连接后端**
+
 - 确认 `main.py` 已启动，访问 `http://127.0.0.1:8000/health` 验证
 - 检查 `frontend/vite.config.ts` 代理配置是否指向正确端口
 
