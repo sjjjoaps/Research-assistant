@@ -72,30 +72,32 @@ class IngestionPipeline:
         self,
         enable_entity_extraction: bool | None = None,
         enable_modal_extraction: bool | None = None,
-        enable_section_recognition: bool = False,
-        enable_citation_extraction: bool = False,
-        enable_section_chunking: bool = True,
+        enable_section_recognition: bool | None = None,
+        enable_citation_extraction: bool | None = None,
+        enable_section_chunking: bool | None = None,
     ) -> None:
         self._enable_entity_extraction = (
             enable_entity_extraction
             if enable_entity_extraction is not None
             else settings.enable_entity_extraction
         )
-        self._enable_citation_extraction = enable_citation_extraction
+        self._enable_citation_extraction = (
+            enable_citation_extraction
+            if enable_citation_extraction is not None
+            else settings.enable_citation_extraction
+        )
 
         _modal = enable_modal_extraction if enable_modal_extraction is not None else settings.enable_modal_extraction
+        _section_recog = enable_section_recognition if enable_section_recognition is not None else settings.enable_section_recognition
+        _section_chunk = enable_section_chunking if enable_section_chunking is not None else settings.enable_section_chunking
+
         self.document_parser = DocumentParser(
             enable_modal_extraction=_modal,
-            enable_section_recognition=enable_section_recognition,
+            enable_section_recognition=_section_recog,
             modal_max_images=settings.modal_max_images,
             modal_max_tables=settings.modal_max_tables,
         )
-        # Phase 10-1：启用语义分块时使用 SectionChunker；否则沿用 DocumentChunker。
-        # 注意：SectionChunker 内部会在以下情况自动 fallback 到 DocumentChunker：
-        #   - enable_section_recognition=False（page_sections 为空）
-        #   - page_sections 与 pages 长度不一致
-        # 因此即使 enable_section_chunking=True 但未开启章节识别，行为与默认一致。
-        self.chunker = SectionChunker() if enable_section_chunking else DocumentChunker()
+        self.chunker = SectionChunker() if _section_chunk else DocumentChunker()
         self.metadata_extractor = MetadataExtractor()
         self.database = MetadataDatabase()
         self.vector_store = VectorStore()
@@ -321,11 +323,12 @@ class IngestionPipeline:
     def ingest_files_concurrent(
         self,
         file_paths: list[str | Path],
-        max_workers: int = 4,
+        max_workers: int | None = None,
     ) -> BatchIngestResult:
         """并发入库多个文件。
 
         使用 ThreadPoolExecutor(max_workers) 控制并发数，单文件失败不影响其他文件。
+        max_workers 默认读取 settings.ingestion_max_workers（INGESTION_MAX_WORKERS 环境变量）。
 
         线程安全保证：
         - FAISS 写入：VectorStore 内置 threading.Lock，add_chunks / save 均在锁内执行
@@ -392,7 +395,7 @@ class IngestionPipeline:
                 # FAISS 和 Neo4j 的线程安全由各自内置锁保证，此处直接调用
                 return self.ingest_file(path)
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers or settings.ingestion_max_workers) as executor:
             future_to_path = {executor.submit(_ingest_one, fp): fp for fp in file_paths}
             for future in as_completed(future_to_path):
                 fp = future_to_path[future]

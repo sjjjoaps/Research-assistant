@@ -248,7 +248,7 @@ class MasterAgent:
             yield event.to_sse()
     """
 
-    MAX_ITERATIONS: int = 10
+    MAX_ITERATIONS: int = 10  # fallback，实际运行时读 settings
 
     def __init__(self) -> None:
         self.tools           = build_native_tool_registry()
@@ -256,6 +256,7 @@ class MasterAgent:
         self._tool_schemas   = [t.to_openai_schema() for t in self.tools]
         self.session_manager = SessionManager()
         self._system_prompt  = load_master_agent_system_prompt()
+        self._max_iterations = settings.master_agent_max_iterations
         self._limiter        = ToolCallLimiter(
             max_calls=settings.tool_call_max_per_window,
             window_seconds=settings.tool_call_window_seconds,
@@ -324,7 +325,7 @@ class MasterAgent:
         total_tokens: dict = {"prompt": 0, "completion": 0}
         memory_written_this_turn: bool = False
 
-        for iteration in range(self.MAX_ITERATIONS):
+        for iteration in range(self._max_iterations):
             yield ThinkingEvent(iteration=iteration)
 
             text_buffer: list[str] = []

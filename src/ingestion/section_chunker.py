@@ -30,6 +30,7 @@ import re
 from typing import Optional
 
 from src.ingestion.document_parser import ParsedDocument
+from src.infrastructure.config import settings
 from src.storage.chunk_tracker import compute_chunk_content_hash, generate_chunk_id
 
 # 复用 DocumentChunker 的 TextChunk 结构，保持一致性
@@ -64,7 +65,7 @@ def chunk_by_section(
     section_content: str,
     section_type:    str,
     max_size:        Optional[int] = None,
-    overlap:         int = 50,
+    overlap:         int | None = None,
 ) -> list[str]:
     """
     按段落边界优先分割，在超出 max_size 时才强制切分（[2]）。
@@ -75,7 +76,7 @@ def chunk_by_section(
         section_content: 要分块的文本内容
         section_type:    章节类型，用于从 SECTION_CHUNK_SIZES 查找默认 max_size
         max_size:        最大 chunk 字符数；None 时从 SECTION_CHUNK_SIZES 查找
-        overlap:         相邻 chunk 的字符重叠数（在已生成 chunk 末尾补切片）
+        overlap:         相邻 chunk 的字符重叠数；None 时从 settings.section_chunk_overlap 读取
 
     Returns:
         分块后的字符串列表，每块正文部分不超过 max_size 字符。
@@ -87,6 +88,8 @@ def chunk_by_section(
     """
     if max_size is None:
         max_size = SECTION_CHUNK_SIZES.get(section_type, SECTION_CHUNK_SIZES["unknown"])
+    if overlap is None:
+        overlap = settings.section_chunk_overlap
 
     # 拆分段落（双换行或单换行后跟空白行）
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", section_content) if p.strip()]

@@ -5,6 +5,8 @@ Agent 基类
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from src.infrastructure.config import settings
+
 
 @dataclass
 class Turn:
@@ -21,12 +23,12 @@ class BaseAgent(ABC):
     2. 约束子类必须实现的两个方法
     """
 
-    def __init__(self, max_history_turns: int = 5) -> None:
+    def __init__(self, max_history_turns: int | None = None) -> None:
         """
         Args:
             max_history_turns: 传给 LLM 时最多携带的历史轮数，防止 prompt 过大
         """
-        self.max_history_turns = max_history_turns
+        self.max_history_turns = max_history_turns if max_history_turns is not None else settings.agent_max_history_turns
         # {thread_id: list[Turn]}
         self._threads: dict[str, list[Turn]] = {}
 

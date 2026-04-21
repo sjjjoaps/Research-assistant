@@ -14,15 +14,12 @@ P1-Step 3：RRF 融合后接入 Reranker 精排（RERANKER_ENABLED=true 时生�
 from src.retrieval.bm25_retriever import BM25Retriever
 from src.retrieval.reranker import get_reranker
 from src.retrieval.retriever import RetrievedChunk, SemanticRetriever
+from src.infrastructure.config import settings
 
 
-_RRF_K = 60           # RRF 平滑常数，通常取 60
-_FILTER_EXPAND = 3    # section_filter 时语义检索的扩容倍数
-
-
-def _rrf_score(rank: int, k: int = _RRF_K) -> float:
+def _rrf_score(rank: int) -> float:
     """RRF 分数：1 / (k + rank)，rank 从 1 开始"""
-    return 1.0 / (k + rank)
+    return 1.0 / (settings.rrf_k + rank)
 
 
 class HybridRetriever:
@@ -42,12 +39,16 @@ class HybridRetriever:
     def __init__(
         self,
         top_k: int = 5,
-        semantic_top_k: int = 10,
-        bm25_top_k: int = 10,
+        semantic_top_k: int | None = None,
+        bm25_top_k: int | None = None,
     ) -> None:
         self.top_k = int(top_k)
-        self.semantic_retriever = SemanticRetriever(top_k=semantic_top_k)
-        self.bm25_retriever = BM25Retriever(top_k=bm25_top_k)
+        self.semantic_retriever = SemanticRetriever(
+            top_k=semantic_top_k if semantic_top_k is not None else settings.hybrid_semantic_top_k
+        )
+        self.bm25_retriever = BM25Retriever(
+            top_k=bm25_top_k if bm25_top_k is not None else settings.hybrid_bm25_top_k
+        )
 
     @staticmethod
     def _chunk_key(chunk: RetrievedChunk) -> str:
@@ -64,7 +65,7 @@ class HybridRetriever:
         """
         sf = section_filter if section_filter else None
         # section_filter 时扩大语义候选量，以弥补后过滤带来的候选损失
-        sem_top_k = self.top_k * _FILTER_EXPAND if section_filter else self.top_k
+        sem_top_k = self.top_k * settings.retrieval_filter_expand if section_filter else self.top_k
         semantic_results = SemanticRetriever(top_k=sem_top_k).retrieve(query, section_type=sf)
         bm25_results = self.bm25_retriever.retrieve(query)
 

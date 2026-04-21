@@ -51,6 +51,7 @@ def _run_ingest_file(file_path: str, enable_entity_extraction: bool, enable_moda
     pipeline = IngestionPipeline(
         enable_entity_extraction=enable_entity_extraction,
         enable_modal_extraction=enable_modal_extraction,
+        # citation/section 开关从 settings 读取，无需前端传参
     )
     try:
         pipeline.ingest_file(file_path)
@@ -119,6 +120,7 @@ def get_document_status(doc_id: str):
 def ingest_file(req: IngestFileRequest):
     """入库单个文件（PDF / DOCX / TXT）"""
     pipeline = IngestionPipeline(enable_entity_extraction=req.enable_entity_extraction)
+    # citation/section/chunking 开关从 settings 读取
     try:
         result = pipeline.ingest_file(req.file_path)
     except FileNotFoundError as e:
@@ -227,6 +229,7 @@ def start_ingest_file(req: IngestFileRequest, background_tasks: BackgroundTasks)
 def ingest_directory(req: IngestDirectoryRequest):
     """入库目录下所有支持格式的文件"""
     pipeline = IngestionPipeline(enable_entity_extraction=req.enable_entity_extraction)
+    # citation/section/chunking 开关从 settings 读取
     try:
         results = pipeline.ingest_directory(req.directory)
     except FileNotFoundError as e:

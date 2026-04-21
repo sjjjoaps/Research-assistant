@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.ingestion.document_parser import ParsedDocument
+from src.infrastructure.config import settings
 from src.storage.chunk_tracker import compute_chunk_content_hash, generate_chunk_id
 
 
@@ -41,10 +42,14 @@ def _find_page_for_offset(offset: int, page_offsets: list[int]) -> int:
 
 
 class DocumentChunker:
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
+    def __init__(
+        self,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+    ):
         self.splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
+            chunk_size=chunk_size if chunk_size is not None else settings.chunk_size,
+            chunk_overlap=chunk_overlap if chunk_overlap is not None else settings.chunk_overlap,
             separators=["\n\n", "\n", "。", ". ", " ", ""],
         )
 

@@ -42,6 +42,31 @@ class Settings(BaseSettings):
     modal_max_images: int = Field(default=20, alias="MODAL_MAX_IMAGES")
     modal_max_tables: int = Field(default=20, alias="MODAL_MAX_TABLES")
 
+    # 引用提取配置
+    enable_citation_extraction: bool = Field(default=False, alias="ENABLE_CITATION_EXTRACTION")
+
+    # 章节识别与分块配置
+    enable_section_recognition: bool = Field(default=False, alias="ENABLE_SECTION_RECOGNITION")
+    enable_section_chunking: bool = Field(default=True, alias="ENABLE_SECTION_CHUNKING")
+
+    # 文本切块参数
+    chunk_size: int = Field(default=1000, alias="CHUNK_SIZE")
+    chunk_overlap: int = Field(default=200, alias="CHUNK_OVERLAP")
+    section_chunk_overlap: int = Field(default=50, alias="SECTION_CHUNK_OVERLAP")
+
+    # 混合检索参数
+    rrf_k: int = Field(default=60, alias="RRF_K")
+    retrieval_filter_expand: int = Field(default=3, alias="RETRIEVAL_FILTER_EXPAND")
+    hybrid_semantic_top_k: int = Field(default=10, alias="HYBRID_SEMANTIC_TOP_K")
+    hybrid_bm25_top_k: int = Field(default=10, alias="HYBRID_BM25_TOP_K")
+
+    # Agent 行为参数
+    master_agent_max_iterations: int = Field(default=10, alias="MASTER_AGENT_MAX_ITERATIONS")
+    agent_max_history_turns: int = Field(default=5, alias="AGENT_MAX_HISTORY_TURNS")
+
+    # 并发入库
+    ingestion_max_workers: int = Field(default=4, alias="INGESTION_MAX_WORKERS")
+
     # 存储路径
     data_dir: Path = Field(default=ROOT_DIR / "data", alias="DATA_DIR")
     sqlite_path: Path = Field(default=ROOT_DIR / "data" / "metadata.db", alias="SQLITE_PATH")
