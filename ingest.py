@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parent))
 
 import argparse
 
-from src.ingestion_pipeline import IngestionPipeline
+from src.workflows.ingestion_pipeline import IngestionPipeline
 
 
 def main() -> None:
