@@ -65,8 +65,13 @@ class HybridRetriever:
         """
         sf = section_filter if section_filter else None
         # section_filter 时扩大语义候选量，以弥补后过滤带来的候选损失
-        sem_top_k = self.top_k * settings.retrieval_filter_expand if section_filter else self.top_k
-        semantic_results = SemanticRetriever(top_k=sem_top_k).retrieve(query, section_type=sf)
+        # 复用 self.semantic_retriever，动态调整 top_k 而不重新实例化
+        if section_filter:
+            from src.retrieval.retriever import SemanticRetriever
+            sem_retriever = SemanticRetriever(top_k=self.top_k * settings.retrieval_filter_expand)
+        else:
+            sem_retriever = self.semantic_retriever
+        semantic_results = sem_retriever.retrieve(query, section_type=sf)
         bm25_results = self.bm25_retriever.retrieve(query)
 
         # 按唯一键收集 chunk 对象（保留第一次出现）

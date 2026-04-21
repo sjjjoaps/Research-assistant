@@ -1,19 +1,18 @@
 """
-Global 检索器
+Global 检索器（备用路径）
 
 定位宏观主题、趋势、关系结构问题，优先融合：
 - RelationVectorStore：关系级向量召回
 - GraphRetriever：图中实体关联补充
 
-Phase 9-2 新增：
-- _build_year_cache()：在首次检索时从 SQLite 构建 file_path→year 缓存，
-  使关系 chunk 能携带 year 参与时间感知过滤
+注意：此检索器现已作为备用路径保留。
+主路径已切换为 LightRAGDualRetriever（实现 LightRAG §3.2 双极检索范式），
+仅在 LightRAGDualRetriever 不可用时由 MixRetriever 和 tool_registry 降级使用。
 
-Phase 10-2：retrieve() 新增 section_filter 参数（安全兜底）。
-注意：GlobalRetriever 的输出均为 section_type="relation"/"entity"，
-与文本章节类型（method/abstract 等）语义不一致。
-因此 global 模式与 section_filter 组合通常意义不大，过滤后结果大概率为空。
-如需按章节过滤，建议改用 local/semantic 模式。
+与 LightRAGDualRetriever 的主要区别：
+- 使用 RelationVectorStore（独立关系向量索引）而非 GraphStore.search_by_relations()
+- 无双极关键词分级提取，不做 one-hop 邻居扩展
+- year 从 MetadataDatabase 缓存获取，而非 Graph JOIN 回查
 """
 from __future__ import annotations
 

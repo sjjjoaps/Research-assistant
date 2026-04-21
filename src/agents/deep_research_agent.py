@@ -98,8 +98,8 @@ def _make_retriever(mode: RetrieverMode, top_k: int):
         from src.retrieval.local_retriever import LocalRetriever
         return LocalRetriever(top_k=top_k)
     if mode == "global":
-        from src.retrieval.global_retriever import GlobalRetriever
-        return GlobalRetriever(top_k=top_k)
+        from src.retrieval.lightrag_retriever import LightRAGDualRetriever
+        return LightRAGDualRetriever(top_k=top_k)
     if mode == "mix":
         from src.retrieval.mix_retriever import MixRetriever
         return MixRetriever(top_k=top_k)

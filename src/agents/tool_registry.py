@@ -361,10 +361,19 @@ def _do_retrieve(
         finally:
             retriever.close()
     elif mode == "global":
-        from src.retrieval.global_retriever import GlobalRetriever
-        retriever = GlobalRetriever(top_k=fetch_k)
+        # 主路径：LightRAGDualRetriever（High-Level 关系检索 + one-hop 扩展）
+        # 备用路径：GlobalRetriever（RelationVectorStore，LightRAG 不可用时降级）
+        from src.retrieval.lightrag_retriever import LightRAGDualRetriever
+        retriever = LightRAGDualRetriever(top_k=fetch_k)
         try:
-            chunks = retriever.retrieve(query, section_filter=section_filter)
+            chunks = retriever.retrieve(query, top_k=fetch_k, section_filter=section_filter)
+        except Exception:
+            from src.retrieval.global_retriever import GlobalRetriever
+            fallback = GlobalRetriever(top_k=fetch_k)
+            try:
+                chunks = fallback.retrieve(query, section_filter=section_filter)
+            finally:
+                fallback.close()
         finally:
             retriever.close()
     elif mode == "mix":
