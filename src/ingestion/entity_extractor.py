@@ -28,6 +28,7 @@ from src.ingestion.description_merger import DescriptionMerger
 from src.infrastructure.llm_client import get_native_llm
 from src.infrastructure.json_utils import extract_json
 from src.storage.relation_vector_store import RelationVectorRecord
+from src.storage.entity_vector_store import EntityVectorRecord
 
 
 def _normalize_extraction_json(raw) -> dict:
@@ -94,6 +95,7 @@ class EntityExtractionStats:
     entity_ids: list[str] = field(default_factory=list)
     relation_keys: list[str] = field(default_factory=list)
     relation_records: list[RelationVectorRecord] = field(default_factory=list)
+    entity_records: list[EntityVectorRecord] = field(default_factory=list)
 
 
 class EntityExtractor:
@@ -165,6 +167,16 @@ class EntityExtractor:
                     seen_entity_ids.add(entity_id)
                     if is_new:
                         stats.created_entities += 1
+                    stats.entity_records.append(
+                        EntityVectorRecord(
+                            entity_id=entity_id,
+                            entity_name=entity.name,
+                            entity_type=entity.entity_type,
+                            description=entity.description or "",
+                            doc_id=str(chunk.metadata.get("doc_id", "")),
+                            file_path=file_path,
+                        )
+                    )
 
             for relation in result.relations:
                 source_id = name_to_entity_id.get(self._normalize_name(relation.source_name))

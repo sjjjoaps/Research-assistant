@@ -53,6 +53,7 @@ from src.storage.chunk_tracker import ChunkTracker, compute_chunk_content_hash
 from src.storage.document_status_store import DocumentStatus, DocumentStatusStore, generate_doc_id
 from src.storage.extraction_cache import compute_file_hash
 from src.storage.relation_vector_store import RelationVectorStore
+from src.storage.entity_vector_store import EntityVectorStore
 from src.storage.vector_store import VectorStore
 
 
@@ -102,6 +103,7 @@ class IngestionPipeline:
         self.database = MetadataDatabase()
         self.vector_store = VectorStore()
         self.relation_vector_store = RelationVectorStore()
+        self.entity_vector_store = EntityVectorStore()
         self.graph_store = GraphStore()
         self.status_store = DocumentStatusStore()
         self.chunk_tracker = ChunkTracker()
@@ -109,6 +111,7 @@ class IngestionPipeline:
         self.database.init_db()
         self.vector_store.load()
         self.relation_vector_store.load()
+        self.entity_vector_store.load()
         self.graph_store.init_schema()
         self.status_store.init_db()
         self.chunk_tracker.init_db()
@@ -276,6 +279,8 @@ class IngestionPipeline:
                     self.status_store.upsert(status)
                     self.relation_vector_store.add_relations(stats.relation_records)
                     self.relation_vector_store.save()
+                    self.entity_vector_store.add_entities(stats.entity_records)
+                    self.entity_vector_store.save()
                     print(f"      实体抽取完成，新增实体 {entity_count} 个，关系 {relation_count} 条")
 
             # ── 完成 ──────────────────────────────────────────────────────────
@@ -462,6 +467,11 @@ class IngestionPipeline:
             if deleted_relation_vectors:
                 print(f"  关系索引删除向量: {deleted_relation_vectors} 条")
 
+            deleted_entity_vectors = self.entity_vector_store.delete_by_doc_id(doc_id)
+            self.entity_vector_store.save()
+            if deleted_entity_vectors:
+                print(f"  实体索引删除向量: {deleted_entity_vectors} 条")
+
             # [2] Neo4j Chunk 节点及 MENTIONS 关系
             deleted_chunks = self.graph_store.delete_document_chunks(file_path)
             print(f"  Neo4j 删除 Chunk: {deleted_chunks} 个")
@@ -522,6 +532,7 @@ class IngestionPipeline:
             "deleted_relations": deleted_relations,
             "deleted_entities": deleted_entities,
             "deleted_relation_vectors": deleted_relation_vectors,
+            "deleted_entity_vectors": deleted_entity_vectors,
         }
 
     def close(self) -> None:
@@ -556,6 +567,10 @@ class IngestionPipeline:
         if deleted_relation_vectors:
             print(f"      [cleanup] 关系索引删除向量: {deleted_relation_vectors} 条")
 
+        deleted_entity_vectors = self.entity_vector_store.delete_by_doc_id(old_doc_id)
+        if deleted_entity_vectors:
+            print(f"      [cleanup] 实体索引删除向量: {deleted_entity_vectors} 条")
+
         deleted_chunks = self.graph_store.delete_document_chunks(file_path)
         print(f"      [cleanup] Neo4j 删除 Chunk: {deleted_chunks} 个")
 
@@ -578,3 +593,4 @@ class IngestionPipeline:
         self.status_store.delete(old_doc_id)
         self.graph_store.reset_document_entity_extracted(file_path)
         self.relation_vector_store.save()
+        self.entity_vector_store.save()

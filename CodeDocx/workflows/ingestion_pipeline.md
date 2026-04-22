@@ -12,18 +12,20 @@
 | 类/函数 | 作用 |
 |---|---|
 | `BatchIngestResult` (dataclass) | 批量入库汇总：`total / succeeded / skipped / failed / results / errors` |
-| `IngestionPipeline.__init__(enable_entity_extraction, enable_modal_extraction, enable_section_recognition, enable_citation_extraction, enable_section_chunking)` | 初始化各阶段开关和组件 |
+| `IngestionPipeline.__init__(enable_entity_extraction, enable_modal_extraction, enable_section_recognition, enable_citation_extraction, enable_section_chunking)` | 初始化各阶段开关和组件（含 `EntityVectorStore`） |
 | `IngestionPipeline.ingest(file_path)` | 单文档入库主流程，更新 `DocumentStatusStore` 状态机 |
 | `IngestionPipeline.batch_ingest(file_paths, max_workers)` | 并发批量入库，使用 `ThreadPoolExecutor` |
 | `IngestionPipeline.delete_document(doc_id)` | 精确删除：只清理该文档独占数据，共享实体/关系保留 |
 
 ## 调用关系
 - **被调用方**：`api/routers/documents.py`（上传接口触发入库）
-- **依赖方**：`DocumentParser`、`SectionChunker`/`DocumentChunker`、`MetadataExtractor`、`MetadataDatabase`、`VectorStore`、`GraphStore`、`EntityExtractor`、`CitationExtractor`、`ChunkTracker`、`DocumentStatusStore`、`RelationVectorStore`
+- **依赖方**：`DocumentParser`、`SectionChunker`/`DocumentChunker`、`MetadataExtractor`、`MetadataDatabase`、`VectorStore`、`GraphStore`、`EntityExtractor`、`CitationExtractor`、`ChunkTracker`、`DocumentStatusStore`、`RelationVectorStore`、`EntityVectorStore`
 
 ## 注意事项
 - 增量检测：`doc_id`（文件内容 MD5）未变化时直接跳过，不重复入库
 - 变更检测：同路径文件内容变化时，先清理旧 chunk/source 绑定再重建
 - `enable_section_chunking=True`（默认）时使用 `SectionChunker`，无章节信息时 fallback 到 `DocumentChunker`
+- 实体抽取完成后同步写入 `EntityVectorStore`（`stats.entity_records`）和 `RelationVectorStore`（`stats.relation_records`）并保存索引
+- 删除文档时同步清理 `EntityVectorStore` 和 `RelationVectorStore` 中该文档贡献的向量
 - 删除流程引入 `deleting / delete_failed` 状态机，支持失败重试
 - 状态流转：`pending → parsing → chunking → metadata → indexing → graph → citations → extracting → processed`

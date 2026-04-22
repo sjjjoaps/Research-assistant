@@ -1,19 +1,21 @@
 """
-LightRAG 双极检索器（Phase 9-1）
+LightRAG 双极检索器（Phase 9-1，完全对齐 §3.2）
 
 实现 LightRAG §3.2 Dual-Level Retrieval Paradigm：
 
     查询类型        检索级别        关键词类型        检索来源
     ──────────    ──────────    ──────────────    ────────────────────────
-    Specific       Low-Level      ll_keywords       实体向量匹配
-    Abstract       High-Level     hl_keywords       关系向量匹配
+    Specific       Low-Level      ll_keywords       实体 FAISS 向量匹配 → 图邻域扩展
+    Abstract       High-Level     hl_keywords       关系向量匹配（GraphStore.search_by_relations）
     Both           Dual（双路）   ll + hl           Low-Level + High-Level
     Neither        Mix            —                 fallback 到 MixRetriever
 
 三步流程（对应论文 §3.2）：
     (i)  双极关键词提取：KeywordExtractor → ll_keywords + hl_keywords
     (ii) 双路向量匹配：
-         - Low-Level  (ll_keywords) → GraphRetriever（实体邻域精确召回）
+         - Low-Level  (ll_keywords) → EntityVectorStore.similarity_search()
+                                      → entity_ids → _entity_ids_to_chunks()（图邻域扩展）
+                                      （entity FAISS 为空时降级到 GraphRetriever）
          - High-Level (hl_keywords) → GraphStore.search_by_relations()（关系描述语义召回）
     (iii) 高阶关联扩展 (one-hop neighbor expansion)：
          从 (ii) 获得的实体 ID 集合出发，调用 GraphStore.get_one_hop_neighbors()
@@ -53,6 +55,7 @@ class LightRAGDualRetriever:
         self._keyword_extractor = None
         self._graph_retriever = None
         self._graph_store = None
+        self._entity_vector_store = None
 
     def _get_keyword_extractor(self):
         if self._keyword_extractor is None:
@@ -73,6 +76,13 @@ class LightRAGDualRetriever:
             from src.storage.graph_store import GraphStore
             self._graph_store = GraphStore()
         return self._graph_store
+
+    def _get_entity_vector_store(self):
+        if self._entity_vector_store is None:
+            from src.storage.entity_vector_store import EntityVectorStore
+            self._entity_vector_store = EntityVectorStore()
+            self._entity_vector_store.load()
+        return self._entity_vector_store
 
     # ── 主检索入口 ───────────────────────────────────────────────────────────
 
@@ -104,12 +114,26 @@ class LightRAGDualRetriever:
 
         logger.debug("LightRAG 双极关键词 ll=%s hl=%s", ll_kws, hl_kws)
 
-        # (ii-a) Low-Level 检索：GraphRetriever 以原始 query 召回实体邻域 chunk
+        # (ii-a) Low-Level 检索：entity FAISS 向量匹配 → 图邻域 chunk 召回
         low_chunks: list[RetrievedChunk] = []
         if ll_kws:
             try:
-                gr = self._get_graph_retriever()
-                low_chunks = gr.retrieve(query)
+                evs = self._get_entity_vector_store()
+                ll_query = " ".join(ll_kws)
+                entity_docs = evs.similarity_search(ll_query, k=k * 2)
+                if entity_docs:
+                    # 从 entity FAISS 结果中收集 entity_id，通过图邻域扩展召回 chunk
+                    entity_ids_from_vdb = [
+                        doc.metadata["entity_id"]
+                        for doc in entity_docs
+                        if doc.metadata.get("entity_id")
+                    ]
+                    gs = self._get_graph_store()
+                    low_chunks = self._entity_ids_to_chunks(gs, entity_ids_from_vdb, k)
+                else:
+                    # entity FAISS 为空（尚未建索引），降级到 GraphRetriever
+                    gr = self._get_graph_retriever()
+                    low_chunks = gr.retrieve(query)
             except Exception as exc:
                 logger.warning("LightRAG Low-Level 检索失败: %s", exc)
 
@@ -191,11 +215,54 @@ class LightRAGDualRetriever:
         return chunks
 
     @staticmethod
+    def _entity_ids_to_chunks(graph_store, entity_ids: list[str], k: int) -> list[RetrievedChunk]:
+        """
+        Low-Level 核心：从 entity_id 列表出发，通过图邻域扩展召回关联 chunk。
+
+        流程（对齐 LightRAG §3.2 Low-Level）：
+        1. 对每个 entity_id 调用 get_one_hop_neighbors() 获取邻居实体
+        2. 将实体自身 + 邻居实体的描述转为 RetrievedChunk（entity 类型）
+        """
+        chunks: list[RetrievedChunk] = []
+        seen_ids: set[str] = set()
+        for eid in entity_ids[:k]:
+            if eid in seen_ids:
+                continue
+            seen_ids.add(eid)
+            try:
+                neighbors = graph_store.get_one_hop_neighbors([eid])
+                for nb in neighbors:
+                    nb_id = nb.get("entity_id", "")
+                    if nb_id in seen_ids:
+                        continue
+                    seen_ids.add(nb_id)
+                    name = nb.get("name", "")
+                    desc = nb.get("description", "")
+                    rel_type = nb.get("relation_type", "")
+                    if not (name or desc):
+                        continue
+                    content = (
+                        f"[实体检索]\n"
+                        f"实体: {name}\n"
+                        + (f"关联关系: {rel_type}\n" if rel_type else "")
+                        + (f"描述: {desc}" if desc else "")
+                    ).strip()
+                    chunks.append(
+                        RetrievedChunk(
+                            content=content,
+                            file_path="graph_neighbor",
+                            chunk_index=-1,
+                            section_type="entity",
+                            entity_id=nb_id,
+                        )
+                    )
+            except Exception:
+                pass
+        return chunks
+
+    @staticmethod
     def _neighbors_to_chunks(neighbors: list[dict]) -> list[RetrievedChunk]:
-        """
-        将 GraphStore.get_one_hop_neighbors() 的返回结果转为 RetrievedChunk。
-        content 包含邻居实体的描述信息，用于补充上下文。
-        """
+        """将 GraphStore.get_one_hop_neighbors() 的返回结果转为 RetrievedChunk。"""
         chunks: list[RetrievedChunk] = []
         for nb in neighbors:
             name = nb.get("name", "")

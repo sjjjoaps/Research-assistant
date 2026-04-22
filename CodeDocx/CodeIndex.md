@@ -7,7 +7,7 @@
 | 层 | 目录 | 文档目录 | 职责 |
 |---|---|---|---|
 | 基础设施层 | `src/infrastructure/` | [infrastructure/](infrastructure/) | 配置、LLM客户端（text+vision双工厂）、嵌入、Token追踪、弹性工具、长期记忆、JSON工具 |
-| 存储层 | `src/storage/` | [storage/](storage/) | 向量库、图数据库（Neo4j 5.x）、元数据库、文档状态、Chunk追踪、关系向量、解析缓存 |
+| 存储层 | `src/storage/` | [storage/](storage/) | 向量库、图数据库（Neo4j 5.x）、元数据库、文档状态、Chunk追踪、关系向量、实体向量、解析缓存 |
 | 检索层 | `src/retrieval/` | [retrieval/](retrieval/) | 语义/BM25/图/混合/Local/Global/Mix/LightRAG双极检索、Reranker、时间过滤（top_k 统一 int） |
 | 入库层 | `src/ingestion/` | [ingestion/](ingestion/) | 文档解析（多模态）、分块、章节分块、元数据提取、实体/关系/引用提取、社区检测、多模态处理 |
 | 工作流层 | `src/workflows/` | [workflows/](workflows/) | 入库流水线（增量/批量/删除，delete_by_doc_id 优先） |
@@ -52,6 +52,7 @@
 | `graph_store.py` | [storage/graph_store.md](storage/graph_store.md) |
 | `database.py` | [storage/database.md](storage/database.md) |
 | `relation_vector_store.py` | [storage/relation_vector_store.md](storage/relation_vector_store.md) |
+| `entity_vector_store.py` | [storage/entity_vector_store.md](storage/entity_vector_store.md) |
 | `chunk_tracker.py` | [storage/chunk_tracker.md](storage/chunk_tracker.md) |
 | `document_status_store.py` | [storage/document_status_store.md](storage/document_status_store.md) |
 | `extraction_cache.py` | [storage/extraction_cache.md](storage/extraction_cache.md) |

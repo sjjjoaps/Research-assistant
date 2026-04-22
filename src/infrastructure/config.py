@@ -75,6 +75,10 @@ class Settings(BaseSettings):
         default=ROOT_DIR / "data" / "relation_faiss",
         alias="RELATION_FAISS_INDEX_DIR",
     )
+    entity_faiss_index_dir: Path = Field(
+        default=ROOT_DIR / "data" / "entity_faiss",
+        alias="ENTITY_FAISS_INDEX_DIR",
+    )
 
     # Neo4j 配置
     neo4j_uri: str = Field(default="bolt://localhost:7687", alias="NEO4J_URI")
